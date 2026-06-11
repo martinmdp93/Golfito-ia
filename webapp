@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Golfito — Panel de Entrenadores</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green:#1a472a;--green-mid:#2d6a4f;--green-light:#40916c;--green-pale:#d8f3dc;
+    --gold:#c9a84c;--gold-light:#e9c46a;--cream:#faf7f0;--cream-dark:#f0ebe0;
+    --text:#1a1a1a;--text-muted:#6b6b6b;--white:#ffffff;
+    --shadow:0 4px 24px rgba(26,71,42,0.08);--shadow-lg:0 8px 40px rgba(26,71,42,0.14);
+    --radius:16px;--radius-sm:8px;
+    --blue:#1565c0;--blue-light:#e3f2fd;--purple:#6a0dad;--purple-light:#f3e5f5;
+    --red:#c62828;--red-light:#ffebee;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);min-height:100vh;}
+  .header{background:var(--green);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:72px;box-shadow:0 2px 20px rgba(0,0,0,0.2);position:sticky;top:0;z-index:100;}
+  .logo{display:flex;align-items:center;gap:14px;}
+  .logo-icon{width:42px;height:42px;background:var(--gold);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;}
+  .logo-text{font-family:'Playfair Display',serif;color:var(--white);font-size:22px;font-weight:700;}
+  .logo-sub{color:var(--gold-light);font-size:11px;font-weight:300;letter-spacing:2.5px;text-transform:uppercase;margin-top:2px;}
+  .header-stats{display:flex;gap:40px;}
+  .stat{text-align:center;}
+  .stat-num{font-family:'Playfair Display',serif;color:var(--gold-light);font-size:24px;font-weight:700;line-height:1;}
+  .stat-label{color:rgba(255,255,255,0.55);font-size:10px;text-transform:uppercase;letter-spacing:1.5px;margin-top:3px;}
+  .main{max-width:1160px;margin:0 auto;padding:36px 24px;}
+  .tabs{display:flex;gap:4px;margin-bottom:28px;background:var(--cream-dark);padding:4px;border-radius:var(--radius-sm);width:fit-content;}
+  .tab{padding:9px 22px;border-radius:6px;border:none;background:transparent;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:var(--text-muted);cursor:pointer;transition:all 0.2s;}
+  .tab.active{background:var(--white);color:var(--green);box-shadow:0 2px 8px rgba(0,0,0,0.08);}
+  .section-title{font-family:'Playfair Display',serif;font-size:26px;color:var(--green);margin-bottom:6px;}
+  .section-sub{color:var(--text-muted);font-size:13px;margin-bottom:24px;}
+  .cards-grid{display:grid;gap:14px;}
+  .card{background:var(--white);border-radius:var(--radius);padding:22px 26px;box-shadow:var(--shadow);display:grid;grid-template-columns:1fr auto;align-items:center;gap:16px;transition:box-shadow 0.2s,transform 0.2s;border-left:4px solid transparent;}
+  .card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px);}
+  .card.pendiente{border-left-color:var(--gold);}
+  .card.enviado{border-left-color:var(--green-light);}
+  .card-info{display:flex;flex-direction:column;gap:7px;}
+  .card-name{font-family:'Playfair Display',serif;font-size:19px;color:var(--green);}
+  .card-meta{display:flex;gap:14px;flex-wrap:wrap;}
+  .meta-item{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-muted);}
+  .meta-item strong{color:var(--text);font-weight:500;}
+  .card-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;}
+  .card-date{font-size:11px;color:var(--text-muted);}
+  .card-actions{display:flex;flex-direction:column;gap:8px;align-items:flex-end;}
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;}
+  .badge-pendiente{background:#fff8e6;color:#a07000;}
+  .badge-enviado{background:var(--green-pale);color:var(--green-mid);}
+  .badge-video{background:var(--blue-light);color:var(--blue);}
+  .badge-analisis{background:#e8eaf6;color:#3949ab;}
+  .badge-plan{background:var(--purple-light);color:var(--purple);}
+  .badge-feedback{background:#fff3e0;color:#e65100;}
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:var(--radius-sm);border:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap;}
+  .btn-primary{background:var(--green);color:var(--white);}
+  .btn-primary:hover{background:var(--green-mid);transform:translateY(-1px);}
+  .btn-gold{background:var(--gold);color:var(--white);}
+  .btn-gold:hover{background:#b8943e;transform:translateY(-1px);}
+  .btn-blue{background:var(--blue);color:var(--white);}
+  .btn-blue:hover{background:#0d47a1;transform:translateY(-1px);}
+  .btn-outline{background:transparent;color:var(--green);border:2px solid var(--green);}
+  .btn-outline:hover{background:var(--green);color:var(--white);}
+  .btn-outline-muted{background:transparent;color:var(--text-muted);border:1.5px solid var(--cream-dark);}
+  .btn-outline-muted:hover{border-color:var(--text-muted);color:var(--text);}
+  .btn-whatsapp{background:#25d366;color:var(--white);}
+  .btn-whatsapp:hover{background:#1da851;transform:translateY(-1px);}
+  .btn-sm{padding:6px 13px;font-size:12px;}
+  .btn:disabled{opacity:0.45;cursor:not-allowed;transform:none!important;}
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:20px;}
+  .modal-overlay.open{display:flex;}
+  .modal{background:var(--white);border-radius:var(--radius);width:100%;max-width:860px;max-height:92vh;overflow-y:auto;box-shadow:var(--shadow-lg);animation:modalIn 0.22s ease;}
+  @keyframes modalIn{from{opacity:0;transform:translateY(24px) scale(0.97);}to{opacity:1;transform:translateY(0) scale(1);}}
+  .modal-header{background:var(--green);padding:22px 30px;border-radius:var(--radius) var(--radius) 0 0;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10;}
+  .modal-title{font-family:'Playfair Display',serif;color:var(--white);font-size:20px;}
+  .modal-subtitle{color:rgba(255,255,255,0.65);font-size:12px;margin-top:3px;}
+  .modal-close{background:rgba(255,255,255,0.18);border:none;color:var(--white);width:34px;height:34px;border-radius:50%;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.2s;}
+  .modal-close:hover{background:rgba(255,255,255,0.32);}
+  .modal-body{padding:28px 30px;}
+  .modal-section{margin-bottom:26px;}
+  .modal-section-title{font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--text-muted);margin-bottom:12px;font-weight:600;padding-bottom:6px;border-bottom:1px solid var(--cream-dark);}
+  .info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+  .info-item{background:var(--cream);border-radius:var(--radius-sm);padding:11px 14px;}
+  .info-label{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;}
+  .info-value{font-size:14px;font-weight:600;color:var(--green);}
+  .video-links{display:flex;flex-direction:column;gap:8px;}
+  .video-link{display:inline-flex;align-items:center;gap:8px;background:var(--blue-light);color:var(--blue);padding:9px 14px;border-radius:var(--radius-sm);text-decoration:none;font-size:13px;font-weight:500;transition:background 0.2s;width:fit-content;}
+  .video-link:hover{background:#bbdefb;}
+  .no-video{color:var(--text-muted);font-size:13px;font-style:italic;}
+  .analisis-box{background:#f0faf5;border-radius:var(--radius-sm);padding:14px 16px;display:grid;gap:10px;border-left:3px solid var(--green-light);}
+  .analisis-box+.analisis-box{margin-top:10px;}
+  .analisis-tag{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--green-mid);font-weight:700;margin-bottom:6px;}
+  .analisis-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:3px;}
+  .analisis-value{font-size:13px;line-height:1.5;color:var(--text);}
+  .analisis-value.highlight{font-size:15px;font-weight:600;color:var(--green);}
+  .ai-loading-banner{background:var(--blue-light);border-radius:var(--radius-sm);padding:14px 16px;display:flex;align-items:center;gap:12px;font-size:13px;color:var(--blue);margin-bottom:12px;}
+  .analisis-toggle{display:flex;gap:8px;margin-bottom:12px;}
+  .toggle-btn{padding:7px 16px;border-radius:var(--radius-sm);border:2px solid var(--green);background:transparent;color:var(--green);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;}
+  .toggle-btn.active{background:var(--green);color:var(--white);}
+  .plan-form{display:grid;gap:16px;}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .form-group{display:flex;flex-direction:column;gap:5px;}
+  .form-group.full{grid-column:1/-1;}
+  .form-label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600;}
+  .form-label-locked{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--green);font-weight:700;}
+  .form-label-locked::after{content:" ✏️";font-size:10px;}
+  .form-textarea{width:100%;padding:10px 13px;border:1.5px solid var(--cream-dark);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--cream);resize:vertical;min-height:80px;outline:none;transition:border-color 0.2s;line-height:1.5;}
+  .form-textarea:focus{border-color:var(--green);background:var(--white);}
+  .form-textarea.coach-field{border-color:rgba(26,71,42,0.3);background:#f4faf6;}
+  .form-textarea.coach-field:focus{border-color:var(--green);background:var(--white);}
+  .form-select{width:100%;padding:9px 13px;border:1.5px solid var(--cream-dark);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--cream);outline:none;cursor:pointer;transition:border-color 0.2s;}
+  .form-select:focus{border-color:var(--green);background:var(--white);}
+  .ejercicio-preview{background:var(--blue-light);border-radius:var(--radius-sm);padding:10px 13px;font-size:12px;color:var(--blue);margin-top:4px;line-height:1.6;display:none;}
+  .ejercicio-preview .ej-instr{color:var(--text);margin-bottom:4px;}
+  .ejercicio-preview .ej-link a{color:var(--blue);word-break:break-all;}
+  .actions-row{display:flex;gap:10px;flex-wrap:wrap;}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;padding-top:20px;border-top:1px solid var(--cream-dark);margin-top:8px;}
+  .ai-status{background:var(--cream);border-radius:var(--radius-sm);padding:12px 16px;font-size:12px;color:var(--text-muted);margin-top:10px;display:none;align-items:center;gap:10px;}
+  .ai-status.visible{display:flex;}
+  .ai-status.success{background:var(--green-pale);color:var(--green-mid);}
+  .ai-status.error-state{background:var(--red-light);color:var(--red);}
+  .loading{display:flex;align-items:center;gap:10px;color:var(--text-muted);font-size:13px;padding:16px 0;}
+  .spinner{width:18px;height:18px;border:2px solid var(--cream-dark);border-top-color:var(--green);border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .empty{text-align:center;padding:56px 20px;color:var(--text-muted);}
+  .empty-icon{font-size:44px;margin-bottom:14px;}
+  .empty-title{font-family:'Playfair Display',serif;font-size:20px;color:var(--green);margin-bottom:6px;}
+  .empty-sub{font-size:13px;}
+  .historial-card{background:var(--white);border-radius:var(--radius);padding:18px 22px;box-shadow:var(--shadow);display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-left:4px solid var(--green-light);cursor:pointer;transition:box-shadow 0.2s,transform 0.2s;}
+  .historial-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px);}
+  .historial-name{font-weight:600;font-size:15px;color:var(--green);}
+  .historial-meta{font-size:12px;color:var(--text-muted);margin-top:3px;}
+  .historial-feedback{margin-top:6px;font-size:12px;color:var(--text);background:#fff8e6;padding:6px 10px;border-radius:6px;font-style:italic;max-width:400px;}
+  .plan-preview{background:var(--cream);border-radius:var(--radius-sm);border:1.5px solid var(--cream-dark);padding:16px;font-size:12px;line-height:1.7;max-height:360px;overflow-y:auto;display:none;margin-top:12px;}
+  .plan-preview.visible{display:block;}
+  .plan-preview h4{color:var(--green);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:14px 0 5px 0;border-bottom:1px solid var(--cream-dark);padding-bottom:3px;}
+  .plan-preview h4:first-child{margin-top:0;}
+  .plan-preview .prev-nombre{font-weight:600;color:var(--text);}
+  .plan-preview .prev-instr{color:var(--text);margin-top:3px;}
+  .plan-preview .prev-link{margin-top:3px;}
+  .plan-preview .prev-link a{color:var(--blue);word-break:break-all;font-size:11px;}
+  .toast{position:fixed;bottom:28px;right:28px;background:var(--green);color:var(--white);padding:12px 22px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;box-shadow:var(--shadow-lg);transform:translateY(80px);opacity:0;transition:all 0.3s;z-index:999;display:flex;align-items:center;gap:8px;}
+  .toast.show{transform:translateY(0);opacity:1;}
+  .toast.error{background:var(--red);}
+  .divider{height:1px;background:var(--cream-dark);margin:4px 0 16px 0;}
+  /* Ejercicios */
+  .ej-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px;}
+  .ej-filter{display:flex;flex-direction:column;gap:4px;}
+  .ej-filter-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600;}
+  .ej-filter select,.ej-filter input{padding:7px 11px;border:1.5px solid var(--cream-dark);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--cream);outline:none;transition:border-color 0.2s;min-width:130px;}
+  .ej-filter select:focus,.ej-filter input:focus{border-color:var(--green);}
+  .ej-table-wrap{overflow-x:auto;border-radius:var(--radius-sm);box-shadow:var(--shadow);}
+  .ej-table{width:100%;border-collapse:collapse;background:var(--white);font-size:13px;}
+  .ej-table th{background:var(--green);color:var(--white);text-align:left;padding:10px 14px;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600;white-space:nowrap;}
+  .ej-table td{padding:10px 14px;border-bottom:1px solid var(--cream-dark);vertical-align:middle;}
+  .ej-table tr:last-child td{border-bottom:none;}
+  .ej-table tr:hover td{background:var(--cream);}
+  .ej-table .cell-nombre{font-weight:600;color:var(--green);max-width:200px;}
+  .ej-table .cell-instr{color:var(--text-muted);max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .ej-badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;}
+  .ej-badge-sensacion{background:#e3f2fd;color:#1565c0;}
+  .ej-badge-aspecto{background:var(--green-pale);color:var(--green-mid);}
+  .ej-badge-drill{background:var(--purple-light);color:var(--purple);}
+  .ej-badge-tecnica,.ej-badge-tecnico{background:#e8f5e9;color:#2e7d32;}
+  .ej-badge-default{background:var(--cream-dark);color:var(--text-muted);}
+  .ej-actions{display:flex;gap:6px;white-space:nowrap;}
+  .ej-form{display:grid;gap:14px;}
+  .ej-form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .ej-form-group{display:flex;flex-direction:column;gap:5px;}
+  .ej-form-group.full{grid-column:1/-1;}
+  .ej-form-label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600;}
+  .ej-form-input,.ej-form-select,.ej-form-textarea{width:100%;padding:9px 12px;border:1.5px solid var(--cream-dark);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--cream);outline:none;transition:border-color 0.2s;}
+  .ej-form-input:focus,.ej-form-select:focus,.ej-form-textarea:focus{border-color:var(--green);background:var(--white);}
+  .ej-form-textarea{resize:vertical;min-height:72px;line-height:1.5;}
+  /* Mensajes */
+  .mensajes-layout{display:grid;grid-template-columns:300px 1fr;gap:20px;min-height:600px;}
+  .mensajes-lista{background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;}
+  .mensajes-lista-header{background:var(--green);color:var(--white);padding:14px 18px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;flex-shrink:0;}
+  .mensajes-conv-list-scroll{overflow-y:auto;flex:1;}
+  .mensajes-conv-item{padding:12px 18px;border-bottom:1px solid var(--cream-dark);cursor:pointer;transition:background 0.15s;}
+  .mensajes-conv-item:hover{background:var(--cream);}
+  .mensajes-conv-item.active{background:var(--green-pale);border-left:3px solid var(--green);}
+  .mensajes-conv-nombre{font-weight:600;font-size:14px;color:var(--green);}
+  .mensajes-conv-paso{font-size:11px;color:var(--text-muted);margin-top:2px;}
+  .mensajes-conv-fecha{font-size:10px;color:var(--text-muted);margin-top:2px;}
+  .mensajes-panel{background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:600px;}
+  .mensajes-panel-header{background:var(--green);color:var(--white);padding:14px 20px;border-radius:var(--radius) var(--radius) 0 0;flex-shrink:0;}
+  .mensajes-panel-nombre{font-family:'Playfair Display',serif;font-size:18px;}
+  .mensajes-panel-wa{font-size:11px;color:rgba(255,255,255,0.65);margin-top:4px;display:flex;align-items:center;gap:10px;}
+  .mensajes-panel-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px;font-style:italic;padding:40px;}
+  /* Chat bubbles */
+  .chat-historial{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px;background:#f5f5f5;min-height:300px;max-height:420px;}
+  .chat-msg{display:flex;flex-direction:column;max-width:78%;}
+  .chat-msg.entrante{align-self:flex-start;}
+  .chat-msg.saliente{align-self:flex-end;}
+  .chat-bubble{padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.5;word-break:break-word;}
+  .chat-msg.entrante .chat-bubble{background:var(--white);color:var(--text);border-bottom-left-radius:3px;box-shadow:0 1px 4px rgba(0,0,0,0.07);}
+  .chat-msg.saliente .chat-bubble{background:#1a472a;color:var(--white);border-bottom-right-radius:3px;}
+  .chat-msg.saliente.panel .chat-bubble{background:var(--gold);}
+  .chat-ts{font-size:10px;color:var(--text-muted);margin-top:3px;}
+  .chat-msg.saliente .chat-ts{text-align:right;}
+  .chat-empty{text-align:center;padding:24px;color:var(--text-muted);font-size:13px;font-style:italic;}
+  .chat-loading{display:flex;align-items:center;gap:8px;justify-content:center;padding:20px;color:var(--text-muted);font-size:12px;}
+  .mensajes-compose{border-top:1px solid var(--cream-dark);padding:14px 20px;display:flex;gap:10px;align-items:flex-end;flex-shrink:0;background:var(--white);border-radius:0 0 var(--radius) var(--radius);}
+  .mensajes-textarea{flex:1;padding:10px 13px;border:1.5px solid var(--cream-dark);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;resize:none;min-height:60px;max-height:120px;outline:none;transition:border-color 0.2s;background:var(--cream);line-height:1.5;}
+  .mensajes-textarea:focus{border-color:var(--green);background:var(--white);}
+  .wa-link{display:inline-flex;align-items:center;gap:6px;color:#25d366;font-weight:600;text-decoration:none;font-size:12px;}
+  .wa-link:hover{text-decoration:underline;}
+  /* Login */
+  .login-overlay{position:fixed;inset:0;background:var(--green);z-index:9999;display:flex;align-items:center;justify-content:center;}
+  .login-overlay.hidden{display:none;}
+  .login-box{background:var(--white);border-radius:var(--radius);padding:48px 44px;width:100%;max-width:380px;box-shadow:0 24px 80px rgba(0,0,0,0.3);text-align:center;}
+  .login-logo{width:64px;height:64px;background:var(--gold);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 20px;}
+  .login-title{font-family:'Playfair Display',serif;font-size:26px;color:var(--green);margin-bottom:4px;}
+  .login-sub{color:var(--text-muted);font-size:13px;margin-bottom:32px;}
+  .login-input{width:100%;padding:12px 16px;border:2px solid var(--cream-dark);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);background:var(--cream);outline:none;transition:border-color 0.2s;text-align:center;letter-spacing:3px;margin-bottom:14px;}
+  .login-input:focus{border-color:var(--green);background:var(--white);}
+  .login-btn{width:100%;padding:13px;background:var(--green);color:var(--white);border:none;border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;transition:background 0.2s;}
+  .login-btn:hover{background:var(--green-mid);}
+  .login-btn:disabled{opacity:0.5;cursor:not-allowed;}
+  .login-error{color:var(--red);font-size:13px;margin-top:10px;min-height:20px;}
+  .login-spinner{display:none;justify-content:center;margin-top:12px;}
+  .login-spinner.visible{display:flex;}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-overlay" id="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">⛳</div>
+    <div class="login-title">Golfito</div>
+    <div class="login-sub">Panel de Entrenadores</div>
+    <input class="login-input" type="password" id="login-password" placeholder="••••••••" onkeydown="if(event.key==='Enter') doLogin()">
+    <button class="login-btn" id="login-btn" onclick="doLogin()">Ingresar</button>
+    <div class="login-error" id="login-error"></div>
+    <div class="login-spinner" id="login-spinner"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon">⛳</div>
+    <div><div class="logo-text">Golfito</div><div class="logo-sub">Panel de Entrenadores</div></div>
+  </div>
+  <div class="header-stats">
+    <div class="stat"><div class="stat-num" id="stat-pendientes">—</div><div class="stat-label">Pendientes</div></div>
+    <div class="stat"><div class="stat-num" id="stat-enviados">—</div><div class="stat-label">Enviados</div></div>
+    <div class="stat"><div class="stat-num" id="stat-total">—</div><div class="stat-label">Total</div></div>
+  </div>
+</header>
+
+<main class="main">
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('pendientes',this)">⏳ Pendientes</button>
+    <button class="tab" onclick="showTab('historial',this)">✅ Historial</button>
+    <button class="tab" onclick="showTab('ejercicios',this)">📚 Ejercicios</button>
+    <button class="tab" onclick="showTab('mensajes',this)">💬 Mensajes</button>
+  </div>
+
+  <div id="tab-pendientes">
+    <h2 class="section-title">Sesiones pendientes</h2>
+    <p class="section-sub">Alumnos esperando análisis o plan personalizado.</p>
+    <div id="pendientes-list" class="cards-grid"><div class="loading"><div class="spinner"></div> Cargando sesiones...</div></div>
+  </div>
+
+  <div id="tab-historial" style="display:none">
+    <h2 class="section-title">Historial</h2>
+    <p class="section-sub">Sesiones completadas. Hacé clic para ver detalles o editar.</p>
+    <div id="historial-list" class="cards-grid"><div class="loading"><div class="spinner"></div> Cargando historial...</div></div>
+  </div>
+
+  <div id="tab-ejercicios" style="display:none">
+    <h2 class="section-title">Biblioteca de ejercicios</h2>
+    <p class="section-sub">Ejercicios disponibles para los planes. Podés editar o agregar nuevos.</p>
+    <div class="ej-toolbar">
+      <div class="ej-filter"><div class="ej-filter-label">Aspecto</div><select id="ej-filter-aspecto" onchange="filtrarEjercicios()"><option value="">Todos</option><option value="driver">Driver</option><option value="hierros">Hierros</option><option value="approach">Approach</option><option value="putting">Putting</option><option value="bunker">Bunker</option><option value="primeras veces">Primeras veces</option></select></div>
+      <div class="ej-filter"><div class="ej-filter-label">Nivel</div><select id="ej-filter-nivel" onchange="filtrarEjercicios()"><option value="">Todos</option><option value="principiante">Principiante</option><option value="intermedio">Intermedio</option><option value="avanzado">Avanzado</option><option value="primeras veces">Primeras veces</option></select></div>
+      <div class="ej-filter"><div class="ej-filter-label">Tipo</div><select id="ej-filter-tipo" onchange="filtrarEjercicios()"><option value="">Todos</option><option value="sensacion">Sensación</option><option value="tecnica">Técnica</option><option value="aspecto">Aspecto</option><option value="drill">Drill</option></select></div>
+      <div class="ej-filter"><div class="ej-filter-label">Profesor</div><select id="ej-filter-profesor" onchange="filtrarEjercicios()"><option value="">Todos</option></select></div>
+      <div class="ej-filter"><div class="ej-filter-label">Buscar</div><input type="text" id="ej-filter-buscar" placeholder="Nombre o instrucción..." oninput="filtrarEjercicios()" style="min-width:180px"></div>
+      <div style="margin-left:auto;align-self:flex-end"><button class="btn btn-primary btn-sm" onclick="abrirModalEjercicio(null)">+ Nuevo ejercicio</button></div>
+    </div>
+    <div class="ej-table-wrap">
+      <table class="ej-table">
+        <thead><tr><th>ID</th><th>Nombre</th><th>Aspecto</th><th>Nivel</th><th>Tipo</th><th>Instrucción</th><th>Profesor</th><th></th></tr></thead>
+        <tbody id="ej-table-body"><tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)"><div class="spinner" style="margin:0 auto"></div></td></tr></tbody>
+      </table>
+    </div>
+    <div id="ej-count" style="font-size:12px;color:var(--text-muted);margin-top:10px"></div>
+  </div>
+
+  <!-- MENSAJES con historial de chat -->
+  <div id="tab-mensajes" style="display:none">
+    <h2 class="section-title">Mensajes</h2>
+    <p class="section-sub">Historial completo de conversaciones. Escribile directamente a cualquier alumno.</p>
+    <div class="mensajes-layout">
+      <div class="mensajes-lista">
+        <div class="mensajes-lista-header">Conversaciones</div>
+        <div class="mensajes-conv-list-scroll" id="mensajes-conv-list">
+          <div class="loading" style="padding:20px"><div class="spinner"></div> Cargando...</div>
+        </div>
+      </div>
+      <div class="mensajes-panel" id="mensajes-panel">
+        <div class="mensajes-panel-empty">Seleccioná una conversación para ver el historial completo.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- MODAL EJERCICIO -->
+<div class="modal-overlay" id="modal-ej-overlay" onclick="closeModalEjOutside(event)">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-header">
+      <div><div class="modal-title" id="modal-ej-title">Nuevo ejercicio</div></div>
+      <button class="modal-close" onclick="closeModalEjercicio()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="ej-form">
+        <div class="ej-form-row">
+          <div class="ej-form-group"><div class="ej-form-label">ID</div><input class="ej-form-input" id="ej-input-id" placeholder="Auto-generado si está vacío"></div>
+          <div class="ej-form-group"><div class="ej-form-label">Nombre *</div><input class="ej-form-input" id="ej-input-nombre" placeholder="Nombre del ejercicio"></div>
+        </div>
+        <div class="ej-form-row">
+          <div class="ej-form-group"><div class="ej-form-label">Aspecto *</div><select class="ej-form-select" id="ej-input-aspecto"><option value="">Seleccionar...</option><option value="driver">Driver</option><option value="hierros">Hierros</option><option value="approach">Approach</option><option value="putting">Putting</option><option value="bunker">Bunker</option><option value="primeras veces">Primeras veces</option></select></div>
+          <div class="ej-form-group"><div class="ej-form-label">Nivel *</div><select class="ej-form-select" id="ej-input-nivel"><option value="">Seleccionar...</option><option value="principiante">Principiante</option><option value="intermedio">Intermedio</option><option value="avanzado">Avanzado</option><option value="primeras veces">Primeras veces</option></select></div>
+        </div>
+        <div class="ej-form-row">
+          <div class="ej-form-group"><div class="ej-form-label">Tipo</div><select class="ej-form-select" id="ej-input-tipo"><option value="">Seleccionar...</option><option value="sensacion">Sensación</option><option value="tecnica">Técnica</option><option value="aspecto">Aspecto</option><option value="drill">Drill</option></select></div>
+          <div class="ej-form-group"><div class="ej-form-label">Profesor</div><input class="ej-form-input" id="ej-input-profesor" placeholder="Nombre del profe"></div>
+        </div>
+        <div class="ej-form-group full"><div class="ej-form-label">URL del video *</div><input class="ej-form-input" id="ej-input-video" placeholder="https://youtube.com/..."></div>
+        <div class="ej-form-group full"><div class="ej-form-label">Instrucción</div><textarea class="ej-form-textarea" id="ej-input-instruccion" placeholder="Instrucción base del ejercicio..."></textarea></div>
+        <div class="ej-form-group full"><div class="ej-form-label">Foco técnico</div><textarea class="ej-form-textarea" id="ej-input-foco" style="min-height:56px" placeholder="Foco técnico..."></textarea></div>
+        <div class="ej-form-row">
+          <div class="ej-form-group"><div class="ej-form-label">Etiqueta 1</div><input class="ej-form-input" id="ej-input-etiqueta1"></div>
+          <div class="ej-form-group"><div class="ej-form-label">Etiqueta 2</div><input class="ej-form-input" id="ej-input-etiqueta2"></div>
+        </div>
+        <div class="ej-form-group" style="max-width:50%"><div class="ej-form-label">Etiqueta 3</div><input class="ej-form-input" id="ej-input-etiqueta3"></div>
+      </div>
+      <div class="ai-status" id="ej-status"></div>
+      <div class="modal-actions">
+        <button class="btn btn-outline-muted" onclick="closeModalEjercicio()">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarEjercicioDesdeModal()">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALLE / PLAN -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModalOutside(event)">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div><div class="modal-title" id="modal-nombre">—</div><div class="modal-subtitle" id="modal-tipo">—</div></div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <div class="modal-section-title">Datos del alumno</div>
+        <div class="info-grid" id="modal-info"></div>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title">Videos del swing</div>
+        <div class="video-links" id="modal-videos"></div>
+      </div>
+      <div class="modal-section" id="section-analisis-ia">
+        <div class="modal-section-title">Análisis de Gemini</div>
+        <div id="ai-auto-loading" class="ai-loading-banner" style="display:none">
+          <div class="spinner"></div><span id="ai-auto-loading-text">Analizando videos con Gemini…</span>
+        </div>
+        <div id="analisis-guardado-contenido"></div>
+        <div id="gemini-contenido-nuevo"></div>
+        <div id="analisis-toggle-section" style="display:none;margin-top:14px">
+          <div class="modal-section-title" style="margin-bottom:8px">Análisis a incluir en el plan</div>
+          <div class="analisis-toggle">
+            <button class="toggle-btn active" id="btn-toggle-ia" onclick="toggleAnalisisPlan('ia')">🤖 Usar análisis IA</button>
+            <button class="toggle-btn" id="btn-toggle-manual" onclick="toggleAnalisisPlan('manual')">✏️ Escribir análisis manual</button>
+          </div>
+          <div id="analisis-manual-section" style="display:none">
+            <div style="background:#e8f5e9;border-radius:8px;padding:12px 14px;margin-bottom:12px;font-size:12px;color:var(--green-mid)">
+              <strong>📋 Referencia Gemini (no se envía al alumno)</strong>
+              <div id="gemini-ref-v1" style="margin-top:6px;color:var(--text-muted)"></div>
+              <div id="gemini-ref-v2" style="margin-top:6px;color:var(--text-muted)"></div>
+            </div>
+            <div class="form-group full" style="margin-bottom:10px">
+              <div class="form-label">Tu análisis — Video 1</div>
+              <textarea class="form-textarea coach-field" id="input-analisis-manual-1" rows="3" placeholder="Escribí tu análisis del video 1..."></textarea>
+            </div>
+            <div class="form-group full">
+              <div class="form-label">Tu análisis — Video 2 (opcional)</div>
+              <textarea class="form-textarea coach-field" id="input-analisis-manual-2" rows="3" placeholder="Escribí tu análisis del video 2..."></textarea>
+            </div>
+          </div>
+        </div>
+        <div id="section-gemini-botones" style="margin-top:10px">
+          <div class="actions-row">
+            <button class="btn btn-blue btn-sm" id="btn-gemini" onclick="analizarSwing(1)" style="display:none">🤖 Analizar video 1</button>
+            <button class="btn btn-blue btn-sm" id="btn-gemini2" onclick="analizarSwing(2)" style="display:none">🤖 Analizar video 2</button>
+          </div>
+        </div>
+        <div class="ai-status" id="ai-status-gemini"></div>
+      </div>
+      <div id="section-plan" style="display:none">
+        <div class="divider"></div>
+        <div class="modal-section">
+          <div class="modal-section-title">Armar plan personalizado</div>
+          <div class="plan-form">
+            <div class="form-group full">
+              <div class="form-label-locked">Foco del plan</div>
+              <textarea class="form-textarea coach-field" id="input-foco" rows="2" style="min-height:56px" placeholder="Escribí el foco del plan..."></textarea>
+            </div>
+            <div class="form-group full">
+              <div class="form-label-locked">Mensaje / nota del coach al alumno</div>
+              <textarea class="form-textarea coach-field" id="input-nota-coach" rows="4" placeholder="Escribí un mensaje personalizado..."></textarea>
+            </div>
+            <div class="form-group full" style="margin-bottom:4px">
+              <div class="form-label">Filtrar por profesor</div>
+              <select class="form-select" id="select-profesor-filtro" onchange="cargarEjerciciosEnSelects()" style="max-width:300px"><option value="">Todos los profesores</option></select>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><div class="form-label">Ejercicio — Approach</div><select class="form-select" id="select-approach" onchange="previewEjercicio('approach')"><option value="">Seleccionar...</option></select><div class="ejercicio-preview" id="preview-approach"></div></div>
+              <div class="form-group"><div class="form-label">Ejercicio — Putter</div><select class="form-select" id="select-putter" onchange="previewEjercicio('putter')"><option value="">Seleccionar...</option></select><div class="ejercicio-preview" id="preview-putter"></div></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><div class="form-label">Ejercicio — Full swing Hierros</div><select class="form-select" id="select-fullswing-hierros" onchange="previewEjercicio('fullswing-hierros')"><option value="">Seleccionar...</option></select><div class="ejercicio-preview" id="preview-fullswing-hierros"></div></div>
+              <div class="form-group"><div class="form-label">Ejercicio — Full swing Maderas</div><select class="form-select" id="select-fullswing-maderas" onchange="previewEjercicio('fullswing-maderas')"><option value="">Seleccionar...</option></select><div class="ejercicio-preview" id="preview-fullswing-maderas"></div></div>
+            </div>
+          </div>
+          <div style="margin-top:16px">
+            <div class="actions-row">
+              <button class="btn btn-outline-muted btn-sm" onclick="togglePreview()">👁 Preview del plan</button>
+              <button class="btn btn-primary" id="btn-enviar" onclick="enviarPlan()">📄 Generar PDF y enviar</button>
+            </div>
+            <div class="ai-status" id="ai-status-plan"></div>
+            <div class="plan-preview" id="plan-preview"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions"><button class="btn btn-outline-muted" onclick="closeModal()">Cerrar</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+let currentLead=null,allLeads=[],allEjercicios=[],planGeneradoIA=null;
+let ejerciciosLoaded=false,mensajesLoaded=false,modoAnalisis='ia';
+let selectedConvWa=null,allConversaciones=[];
+const TOKEN_KEY='golfito_panel_token';
+
+window.onload=function(){
+  const token=sessionStorage.getItem(TOKEN_KEY);
+  if(token){
+    google.script.run
+      .withSuccessHandler(function(r){if(r.ok)mostrarPanel();else{sessionStorage.removeItem(TOKEN_KEY);mostrarLogin();}})
+      .withFailureHandler(function(){mostrarLogin();})
+      .validarTokenPanel(token);
+  }else mostrarLogin();
+};
+function mostrarLogin(){document.getElementById('login-overlay').classList.remove('hidden');setTimeout(()=>document.getElementById('login-password').focus(),100);}
+function mostrarPanel(){document.getElementById('login-overlay').classList.add('hidden');cargarLeads();cargarEjercicios();}
+function doLogin(){
+  const pw=document.getElementById('login-password').value;
+  const btn=document.getElementById('login-btn'),err=document.getElementById('login-error'),sp=document.getElementById('login-spinner');
+  if(!pw){err.textContent='Ingresá la contraseña.';return;}
+  btn.disabled=true;err.textContent='';sp.classList.add('visible');
+  // Timeout de seguridad: si no responde en 15s mostrar error
+  const timeout=setTimeout(function(){
+    btn.disabled=false;sp.classList.remove('visible');
+    err.textContent='Tiempo de espera agotado. Verificá que el deployment esté actualizado.';
+  },15000);
+  google.script.run
+    .withSuccessHandler(function(r){
+      clearTimeout(timeout);
+      btn.disabled=false;sp.classList.remove('visible');
+      if(r.ok){sessionStorage.setItem(TOKEN_KEY,r.token);mostrarPanel();}
+      else{err.textContent=r.error||'Contraseña incorrecta.';document.getElementById('login-password').value='';document.getElementById('login-password').focus();}
+    })
+    .withFailureHandler(function(e){
+      clearTimeout(timeout);
+      btn.disabled=false;sp.classList.remove('visible');
+      err.textContent='Error al conectar: '+(e&&e.message?e.message:'revisar deployment');
+      console.error('Login error:',e);
+    })
+    .validarPasswordPanel(pw);
+}
+function showToast(msg,isError){const t=document.getElementById('toast');t.textContent=msg;t.className='toast'+(isError?' error':'')+' show';setTimeout(()=>t.className='toast',3000);}
+function cargarLeads(){
+  google.script.run
+    .withSuccessHandler(function(d){allLeads=d.leads||[];aplicarFiltros();actualizarStats();})
+    .withFailureHandler(function(e){document.getElementById('pendientes-list').innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">${e.message}</div></div>`;})
+    .obtenerLeads();
+}
+function cargarEjercicios(){google.script.run.withSuccessHandler(function(d){allEjercicios=d||[];}).withFailureHandler(function(){}).obtenerEjerciciosParaSelector();}
+function actualizarStats(){
+  document.getElementById('stat-pendientes').textContent=allLeads.filter(l=>l.status==='pendiente_manual').length;
+  document.getElementById('stat-enviados').textContent=allLeads.filter(l=>l.status==='enviado').length;
+  document.getElementById('stat-total').textContent=allLeads.length;
+}
+function showTab(tab,el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');
+  ['pendientes','historial','ejercicios','mensajes'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'':'none');
+  if(tab==='ejercicios'&&!ejerciciosLoaded){ejerciciosLoaded=true;cargarEjerciciosTab();}
+  if(tab==='mensajes'&&!mensajesLoaded){mensajesLoaded=true;cargarMensajes();}
+}
+function aplicarFiltros(){renderPendientes(allLeads.filter(l=>l.status==='pendiente_manual'));renderHistorial(allLeads.filter(l=>l.status!=='pendiente_manual'));}
+function tipoLabel(e){if(e==='2')return '🤖 Análisis de video';if(e==='3')return '📋 Plan personalizado';return '🎯 Ejercicio gratis';}
+function tipoBadge(e){if(e==='2')return '<span class="badge badge-analisis">🤖 Análisis</span>';if(e==='3')return '<span class="badge badge-plan">📋 Plan</span>';return '';}
+
+function renderPendientes(items){
+  const c=document.getElementById('pendientes-list');
+  if(!items||!items.length){c.innerHTML='<div class="empty"><div class="empty-icon">🎉</div><div class="empty-title">Todo al día</div><div class="empty-sub">No hay sesiones pendientes.</div></div>';return;}
+  c.innerHTML=items.map(l=>`<div class="card pendiente"><div class="card-info"><div class="card-name">${l.nombre||'Sin nombre'}</div><div class="card-meta"><div class="meta-item">🏌️ <strong>${l.nivel}</strong></div>${l.handicap?`<div class="meta-item">HCP <strong>${l.handicap}</strong></div>`:''}</div><div class="card-badges"><span class="badge badge-pendiente">⏳ Pendiente</span>${tipoBadge(l.ejvsplan)}${l.videoUrl1?'<span class="badge badge-video">🎥 Video 1</span>':''}${l.videoUrl2?'<span class="badge badge-video">🎥 Video 2</span>':''}${l.pagoStatus==='pagado'?'<span class="badge badge-enviado">💳 Pagado</span>':''}</div>${l.comentariosAlumno?`<div style="font-size:12px;color:var(--text-muted);font-style:italic;margin-top:2px">💬 "${l.comentariosAlumno}"</div>`:''}<div class="card-date">${l.fecha}</div></div><div class="card-actions"><button class="btn btn-primary btn-sm" onclick="abrirModal(${l.rowIndex})">Ver detalle →</button></div></div>`).join('');
+}
+
+function renderHistorial(items){
+  const c=document.getElementById('historial-list');
+  if(!items||!items.length){c.innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin historial aún</div><div class="empty-sub">Las sesiones completadas aparecerán acá.</div></div>';return;}
+  c.innerHTML=items.map(l=>`<div class="historial-card" onclick="abrirModal(${l.rowIndex})"><div><div class="historial-name">${l.nombre||'Sin nombre'}</div><div class="historial-meta">${l.nivel} · ${tipoLabel(l.ejvsplan)}</div><div class="historial-meta">${l.fecha}${l.codigoPlan?' · '+l.codigoPlan:''}</div>${l.comentariosAlumno?`<div class="historial-feedback">💬 "${l.comentariosAlumno}"</div>`:''} ${l.feedbackAlumno?`<div class="historial-feedback">⭐ ${l.feedbackScore?l.feedbackScore+'/5':''} "${l.feedbackAlumno}"</div>`:''}</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="badge badge-enviado">✅ Enviado</span>${l.feedbackAlumno?'<span class="badge badge-feedback">💬 Con feedback</span>':''}${l.pagoStatus==='pagado'&&l.ejvsplan==='3'?`<button class="btn btn-outline-muted btn-sm" onclick="event.stopPropagation();solicitarReintegro(${l.rowIndex},'${l.nombre}',${l.pagoMonto})">↩ Reintegrar</button>`:''}</div></div>`).join('');
+}
+
+// ── MODAL ──
+function abrirModal(rowIndex){
+  currentLead=allLeads.find(l=>l.rowIndex===rowIndex);if(!currentLead)return;
+  planGeneradoIA=null;modoAnalisis='ia';
+  document.getElementById('modal-nombre').textContent=currentLead.nombre||'Sin nombre';
+  document.getElementById('modal-tipo').textContent=tipoLabel(currentLead.ejvsplan)+(currentLead.codigoPlan?' · '+currentLead.codigoPlan:'');
+  document.getElementById('modal-info').innerHTML=`
+    <div class="info-item"><div class="info-label">Handicap</div><div class="info-value">${currentLead.handicap||'—'}</div></div>
+    <div class="info-item"><div class="info-label">Nivel</div><div class="info-value">${currentLead.nivel}</div></div>
+    <div class="info-item"><div class="info-label">Pago</div><div class="info-value">${currentLead.pagoStatus||'—'}</div></div>
+    <div class="info-item"><div class="info-label">Fecha</div><div class="info-value">${currentLead.fecha}</div></div>
+    ${currentLead.codigoPlan?`<div class="info-item"><div class="info-label">Código</div><div class="info-value">${currentLead.codigoPlan}</div></div>`:''}
+    ${currentLead.comentariosAlumno?`<div class="info-item" style="grid-column:1/-1;background:#fff8e6;border-left:3px solid var(--gold)"><div class="info-label">💬 Comentarios</div><div class="info-value" style="color:#a07000;font-size:13px;font-weight:400">${currentLead.comentariosAlumno}</div></div>`:''}`;
+  const ve=document.getElementById('modal-videos');
+  let vh='';
+  if(currentLead.videoUrl1)vh+=`<a href="${currentLead.videoUrl1}" target="_blank" class="video-link">🎥 Video 1${currentLead.analisisAngulo1?' ('+currentLead.analisisAngulo1+')':''}</a>`;
+  if(currentLead.videoUrl2)vh+=`<a href="${currentLead.videoUrl2}" target="_blank" class="video-link">🎥 Video 2${currentLead.analisisAngulo2?' ('+currentLead.analisisAngulo2+')':''}</a>`;
+  ve.innerHTML=vh||'<span class="no-video">No envió videos.</span>';
+  ['analisis-guardado-contenido','gemini-contenido-nuevo'].forEach(id=>document.getElementById(id).innerHTML='');
+  document.getElementById('ai-auto-loading').style.display='none';
+  document.getElementById('ai-status-gemini').className='ai-status';
+  document.getElementById('ai-status-plan').className='ai-status';
+  document.getElementById('plan-preview').className='plan-preview';
+  document.getElementById('analisis-manual-section').style.display='none';
+  document.getElementById('btn-toggle-ia').className='toggle-btn active';
+  document.getElementById('btn-toggle-manual').className='toggle-btn';
+  document.getElementById('input-analisis-manual-1').value=currentLead.analisisManual1||'';
+  document.getElementById('input-analisis-manual-2').value=currentLead.analisisManual2||'';
+  document.getElementById('analisis-toggle-section').style.display=currentLead.ejvsplan==='3'?'':'none';
+  const tieneA=!!(currentLead.analisisError1||currentLead.analisisError2);
+  const tv1=!!currentLead.videoUrl1,tv2=!!currentLead.videoUrl2,tAmbos=tv1&&tv2;
+  if(tAmbos&&!tieneA){
+    document.getElementById('section-gemini-botones').style.display='none';
+    document.getElementById('ai-auto-loading').style.display='flex';
+    document.getElementById('ai-auto-loading-text').textContent='Analizando video 1 con Gemini…';
+    analizarSwingAuto();
+  }else{
+    const mb1=tv1&&!currentLead.analisisError1&&!tAmbos,mb2=tv2&&!currentLead.analisisError2&&!tAmbos;
+    document.getElementById('section-gemini-botones').style.display=(mb1||mb2)?'':'none';
+    document.getElementById('btn-gemini').style.display=mb1?'':'none';
+    document.getElementById('btn-gemini2').style.display=mb2?'':'none';
+    if(tieneA){
+      let html='';
+      if(currentLead.analisisError1)html+=`<div class="analisis-box">${currentLead.analisisAngulo1?`<div class="analisis-tag">Video 1 — ${currentLead.analisisAngulo1}</div>`:''} ${renderAnalisisFields(currentLead.analisisError1,currentLead.analisisSeveridad1,currentLead.analisisRecomendacion1)}</div>`;
+      if(currentLead.analisisError2)html+=`<div class="analisis-box" style="margin-top:10px">${currentLead.analisisAngulo2?`<div class="analisis-tag">Video 2 — ${currentLead.analisisAngulo2}</div>`:''} ${renderAnalisisFields(currentLead.analisisError2,currentLead.analisisSeveridad2,currentLead.analisisRecomendacion2)}</div>`;
+      document.getElementById('analisis-guardado-contenido').innerHTML=html;
+    }
+  }
+  if(currentLead.ejvsplan==='3'){
+    document.getElementById('section-plan').style.display='';
+    const profesores=[...new Set(allEjercicios.map(e=>e.profesor).filter(Boolean))].sort();
+    document.getElementById('select-profesor-filtro').innerHTML='<option value="">Todos los profesores</option>'+profesores.map(p=>`<option value="${p}">${p}</option>`).join('');
+    cargarEjerciciosEnSelects();
+    document.getElementById('input-foco').value=currentLead.foco||'';
+    document.getElementById('input-nota-coach').value=currentLead.notaCoach||'';
+    preSelectEjercicio('approach',currentLead.ejercicioApproach);
+    preSelectEjercicio('putter',currentLead.ejercicioPutter);
+    preSelectEjercicio('fullswing-hierros',currentLead.ejercicioFullswingHierros);
+    preSelectEjercicio('fullswing-maderas',currentLead.ejercicioFullswingMaderas);
+  }else{document.getElementById('section-plan').style.display='none';}
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function toggleAnalisisPlan(modo){
+  modoAnalisis=modo;
+  document.getElementById('btn-toggle-ia').className='toggle-btn'+(modo==='ia'?' active':'');
+  document.getElementById('btn-toggle-manual').className='toggle-btn'+(modo==='manual'?' active':'');
+  document.getElementById('analisis-manual-section').style.display=modo==='manual'?'':'none';
+  if(modo==='manual'&&currentLead){
+    const r1=document.getElementById('gemini-ref-v1'),r2=document.getElementById('gemini-ref-v2');
+    if(r1)r1.innerHTML=currentLead.analisisError1?`<strong>Video 1${currentLead.analisisAngulo1?' ('+currentLead.analisisAngulo1+')':''}:</strong> ${currentLead.analisisError1}${currentLead.analisisRecomendacion1?' — '+currentLead.analisisRecomendacion1:''}`:'Video 1: sin análisis';
+    if(r2){if(currentLead.analisisError2)r2.innerHTML=`<strong>Video 2${currentLead.analisisAngulo2?' ('+currentLead.analisisAngulo2+')':''}:</strong> ${currentLead.analisisError2}`;else r2.style.display='none';}
+  }
+}
+
+function analizarSwingAuto(){
+  const gid=url=>{const m=(url||'').match(/\/d\/([a-zA-Z0-9_-]+)/);return m?m[1]:null;};
+  const fid1=gid(currentLead.videoUrl1),fid2=gid(currentLead.videoUrl2);
+  if(!fid1){document.getElementById('ai-auto-loading').style.display='none';return;}
+  document.getElementById('ai-auto-loading-text').textContent='Analizando video 1 con Gemini (~30s)…';
+  google.script.run.withSuccessHandler(function(r1){
+    if(r1.ok){
+      const a1=r1.analisis;
+      currentLead.analisisError1=a1.error_principal;currentLead.analisisArea1=a1.area;currentLead.analisisSeveridad1=a1.severidad;currentLead.analisisRecomendacion1=a1.recomendacion;currentLead.analisisAngulo1=a1.angulo;
+      let html=`<div class="analisis-box">${a1.angulo?`<div class="analisis-tag">Video 1 — ${a1.angulo}</div>`:''} ${renderAnalisisFields(a1.error_principal,a1.severidad,a1.recomendacion)}</div>`;
+      document.getElementById('analisis-guardado-contenido').innerHTML=html;
+      if(fid2){
+        document.getElementById('ai-auto-loading-text').textContent='Analizando video 2 con Gemini (~30s)…';
+        google.script.run.withSuccessHandler(function(r2){
+          document.getElementById('ai-auto-loading').style.display='none';
+          if(r2.ok){
+            const a2=r2.analisis;
+            currentLead.analisisError2=a2.error_principal;currentLead.analisisArea2=a2.area;currentLead.analisisSeveridad2=a2.severidad;currentLead.analisisRecomendacion2=a2.recomendacion;currentLead.analisisAngulo2=a2.angulo;
+            html+=`<div class="analisis-box" style="margin-top:10px">${a2.angulo?`<div class="analisis-tag">Video 2 — ${a2.angulo}</div>`:''} ${renderAnalisisFields(a2.error_principal,a2.severidad,a2.recomendacion)}</div>`;
+            document.getElementById('analisis-guardado-contenido').innerHTML=html;
+            google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,a2);
+            showToast('✅ Análisis de ambos videos completado');
+          }else{
+            document.getElementById('ai-status-gemini').className='ai-status visible error-state';
+            document.getElementById('ai-status-gemini').textContent='❌ Error video 2: '+r2.error;
+            google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,null);
+          }
+        }).withFailureHandler(function(e){
+          document.getElementById('ai-auto-loading').style.display='none';
+          document.getElementById('ai-status-gemini').className='ai-status visible error-state';
+          document.getElementById('ai-status-gemini').textContent='❌ Error video 2: '+e.message;
+          google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,null);
+        }).analizarSwingConGemini(fid2);
+      }else{
+        document.getElementById('ai-auto-loading').style.display='none';
+        google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,null);
+        showToast('✅ Análisis completado');
+      }
+    }else{
+      document.getElementById('ai-auto-loading').style.display='none';
+      document.getElementById('ai-status-gemini').className='ai-status visible error-state';
+      document.getElementById('ai-status-gemini').textContent='❌ Error video 1: '+r1.error;
+      document.getElementById('section-gemini-botones').style.display='';
+      document.getElementById('btn-gemini').style.display='';
+      if(fid2)document.getElementById('btn-gemini2').style.display='';
+    }
+  }).withFailureHandler(function(e){
+    document.getElementById('ai-auto-loading').style.display='none';
+    document.getElementById('ai-status-gemini').className='ai-status visible error-state';
+    document.getElementById('ai-status-gemini').textContent='❌ Error: '+e.message;
+    document.getElementById('section-gemini-botones').style.display='';
+    document.getElementById('btn-gemini').style.display='';
+  }).analizarSwingConGemini(fid1);
+}
+
+function renderAnalisisFields(error,severidad,recomendacion){
+  return `<div class="analisis-field"><div class="analisis-label">Error principal</div><div class="analisis-value highlight">${error||'—'}</div></div><div class="analisis-field"><div class="analisis-label">Severidad</div><div class="analisis-value">${severidad||'—'}</div></div><div class="analisis-field"><div class="analisis-label">Recomendación</div><div class="analisis-value">${recomendacion||'—'}</div></div>`;
+}
+
+function closeModal(){document.getElementById('modal-overlay').classList.remove('open');currentLead=null;planGeneradoIA=null;}
+function closeModalOutside(e){if(e.target===document.getElementById('modal-overlay'))closeModal();}
+
+function cargarEjerciciosEnSelects(){
+  const asp={'approach':['approach'],'putter':['putting'],'fullswing-hierros':['hierros'],'fullswing-maderas':['driver']};
+  const pf=((document.getElementById('select-profesor-filtro')||{}).value)||'';
+  ['approach','putter','fullswing-hierros','fullswing-maderas'].forEach(tipo=>{
+    const sel=document.getElementById('select-'+tipo);
+    const av=asp[tipo];
+    const filt=allEjercicios.filter(e=>{
+      const ea=(e.aspecto||'').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+      return av.some(a=>ea===a)&&(!pf||(e.profesor||'').toLowerCase()===pf.toLowerCase());
+    });
+    const niv=(currentLead&&currentLead.nivel?currentLead.nivel:'').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+    filt.sort((a,b)=>{const an=(a.nivel||'').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");const bn=(b.nivel||'').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");return(an===niv?0:1)-(bn===niv?0:1);});
+    sel.innerHTML='<option value="">Seleccionar ejercicio...</option>'+filt.map(e=>`<option value="${e.id}" data-instruccion="${(e.instruccion||'').replace(/"/g,'&quot;')}" data-video="${(e.videoUrl||'').replace(/"/g,'&quot;')}">${e.nombre}${e.nivel?' ['+e.nivel+']':''}</option>`).join('');
+  });
+}
+
+function preSelectEjercicio(tipo,valor){
+  if(!valor)return;
+  const sel=document.getElementById('select-'+tipo);
+  for(let i=0;i<sel.options.length;i++){if(sel.options[i].value===valor){sel.selectedIndex=i;previewEjercicio(tipo);break;}}
+}
+function previewEjercicio(tipo){
+  const sel=document.getElementById('select-'+tipo);
+  const prev=document.getElementById('preview-'+tipo);
+  const opt=sel.options[sel.selectedIndex];
+  if(!opt||!opt.value){prev.style.display='none';prev.innerHTML='';return;}
+  let html='';
+  if(opt.dataset.instruccion)html+=`<div class="ej-instr">${opt.dataset.instruccion}</div>`;
+  if(opt.dataset.video)html+=`<div class="ej-link"><a href="${opt.dataset.video}" target="_blank">${opt.dataset.video}</a></div>`;
+  prev.style.display=html?'block':'none';prev.innerHTML=html;
+}
+
+function analizarSwing(n){
+  if(!currentLead)return;
+  const url=n===1?currentLead.videoUrl1:currentLead.videoUrl2;
+  if(!url){showToast('No hay video '+n,true);return;}
+  const m=url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if(!m){showToast('No se pudo obtener el ID del video',true);return;}
+  const bid='btn-gemini'+(n===2?'2':'');
+  const btn=document.getElementById(bid),st=document.getElementById('ai-status-gemini');
+  btn.disabled=true;btn.textContent='⏳ Analizando...';
+  st.className='ai-status visible';st.innerHTML=`<div class="spinner"></div> Analizando video ${n}…`;
+  google.script.run.withSuccessHandler(function(r){
+    btn.disabled=false;btn.textContent='🤖 Analizar video '+n;
+    if(r.ok){
+      const a=r.analisis;
+      document.getElementById('analisis-guardado-contenido').innerHTML+=`<div class="analisis-box" style="margin-top:10px">${a.angulo?`<div class="analisis-tag">Video ${n} — ${a.angulo}</div>`:''} ${renderAnalisisFields(a.error_principal,a.severidad,a.recomendacion)}</div>`;
+      st.className='ai-status visible success';st.textContent='✅ Análisis completado.';
+      if(n===1){currentLead.analisisError1=a.error_principal;currentLead.analisisArea1=a.area;currentLead.analisisSeveridad1=a.severidad;currentLead.analisisRecomendacion1=a.recomendacion;currentLead.analisisAngulo1=a.angulo;}
+      else{currentLead.analisisError2=a.error_principal;currentLead.analisisArea2=a.area;currentLead.analisisSeveridad2=a.severidad;currentLead.analisisRecomendacion2=a.recomendacion;currentLead.analisisAngulo2=a.angulo;}
+      showToast('✅ Análisis completado');
+    }else{st.className='ai-status visible error-state';st.textContent='❌ Error: '+r.error;}
+  }).withFailureHandler(function(e){btn.disabled=false;btn.textContent='🤖 Analizar video '+n;st.className='ai-status visible error-state';st.textContent='❌ Error: '+e.message;}).analizarSwingConGemini(m[1]);
+}
+
+function togglePreview(){
+  const prev=document.getElementById('plan-preview');
+  if(prev.classList.contains('visible')){prev.classList.remove('visible');return;}
+  const nota=document.getElementById('input-nota-coach').value.trim();
+  const foco=document.getElementById('input-foco').value.trim();
+  function bloqueEj(tipo,titulo){
+    const sel=document.getElementById('select-'+tipo);const opt=sel.options[sel.selectedIndex];
+    let inner=!opt||!opt.value?'<p style="color:var(--text-muted);font-style:italic">No seleccionado</p>':`<p class="prev-nombre">${opt.text.split('[')[0].trim()}</p>${opt.dataset.instruccion?`<p class="prev-instr">${opt.dataset.instruccion}</p>`:''}${opt.dataset.video?`<p class="prev-link"><a href="${opt.dataset.video}" target="_blank">${opt.dataset.video}</a></p>`:''}`;
+    return `<h4>${titulo}</h4>${inner}`;
+  }
+  let html=`<h4>📋 ${currentLead.nombre} — HCP ${currentLead.handicap||'—'} — ${currentLead.nivel}</h4>`;
+  if(currentLead.comentariosAlumno)html+=`<p style="color:var(--text-muted);margin-bottom:6px">💬 ${currentLead.comentariosAlumno}</p>`;
+  if(foco)html+=`<h4>🎯 Foco del plan</h4><p>${foco}</p>`;
+  if(nota)html+=`<h4>💬 Nota del coach</h4><p style="font-style:italic">"${nota}"</p>`;
+  if(modoAnalisis==='ia'){
+    if(currentLead.analisisError1){html+=`<h4>🤖 Análisis IA${currentLead.analisisAngulo1?' ('+currentLead.analisisAngulo1+')':''}</h4><p class="prev-nombre">${currentLead.analisisError1}</p>`;if(currentLead.analisisRecomendacion1)html+=`<p class="prev-instr">${currentLead.analisisRecomendacion1}</p>`;}
+    if(currentLead.analisisError2){html+=`<h4>🤖 Análisis IA${currentLead.analisisAngulo2?' ('+currentLead.analisisAngulo2+')':''}</h4><p class="prev-nombre">${currentLead.analisisError2}</p>`;if(currentLead.analisisRecomendacion2)html+=`<p class="prev-instr">${currentLead.analisisRecomendacion2}</p>`;}
+  }else{
+    const m1=document.getElementById('input-analisis-manual-1').value.trim();
+    const m2=document.getElementById('input-analisis-manual-2').value.trim();
+    if(m1)html+=`<h4>✏️ Análisis — Video 1</h4><p>${m1}</p>`;
+    if(m2)html+=`<h4>✏️ Análisis — Video 2</h4><p>${m2}</p>`;
+  }
+  html+=bloqueEj('approach','🎯 Approach')+bloqueEj('fullswing-hierros','🏌️ Full Swing Hierros')+bloqueEj('fullswing-maderas','🏌️ Full Swing Maderas')+bloqueEj('putter','⛳ Putter');
+  prev.innerHTML=html;prev.classList.add('visible');
+}
+
+function enviarPlan(){
+  if(!currentLead)return;
+  const st=document.getElementById('ai-status-plan');
+  const falt=['approach','fullswing-hierros','fullswing-maderas','putter'].filter(t=>!document.getElementById('select-'+t).value);
+  const nota=document.getElementById('input-nota-coach').value.trim();
+  if(falt.length>0||!nota){
+    const nm={'approach':'Approach','fullswing-hierros':'Full Swing Hierros','fullswing-maderas':'Full Swing Maderas','putter':'Putter'};
+    const msgs=[];
+    if(falt.length>0)msgs.push('Falta ejercicio en: '+falt.map(t=>nm[t]).join(', '));
+    if(!nota)msgs.push('Falta el mensaje del coach');
+    st.className='ai-status visible error-state';st.textContent='⚠️ '+msgs.join(' · ');return;
+  }
+  if(!confirm(`¿Enviar el plan a ${currentLead.nombre}?`))return;
+  const btn=document.getElementById('btn-enviar');
+  const m1=document.getElementById('input-analisis-manual-1').value.trim();
+  const m2=document.getElementById('input-analisis-manual-2').value.trim();
+  if(modoAnalisis==='manual'&&(m1||m2))google.script.run.withSuccessHandler(function(){}).guardarAnalisisManual(currentLead.rowIndex,m1,m2);
+  function getEj(tipo){const sel=document.getElementById('select-'+tipo);const opt=sel.options[sel.selectedIndex];if(!opt||!opt.value)return null;return{ejercicio:opt.text.split('[')[0].trim(),descripcion:opt.dataset.instruccion||'',video_url:opt.dataset.video||''};}
+  const pd={
+    modoAnalisis,foco:document.getElementById('input-foco').value,nota_coach:document.getElementById('input-nota-coach').value,
+    comentariosAlumno:currentLead.comentariosAlumno||'',
+    ejercicioApproach:document.getElementById('select-approach').value,
+    ejercicioFullswingHierros:document.getElementById('select-fullswing-hierros').value,
+    ejercicioFullswingMaderas:document.getElementById('select-fullswing-maderas').value,
+    ejercicioPutter:document.getElementById('select-putter').value,
+    approach:getEj('approach'),fullswing_hierros:getEj('fullswing-hierros'),fullswing_maderas:getEj('fullswing-maderas'),putter:getEj('putter'),
+    analisisManual1:modoAnalisis==='manual'?m1:'',analisisManual2:modoAnalisis==='manual'?m2:'',
+    analisisError1:modoAnalisis==='manual'?'':(currentLead.analisisError1||''),analisisRecomendacion1:modoAnalisis==='manual'?'':(currentLead.analisisRecomendacion1||''),analisisAngulo1:modoAnalisis==='manual'?'':(currentLead.analisisAngulo1||''),
+    analisisError2:modoAnalisis==='manual'?'':(currentLead.analisisError2||''),analisisRecomendacion2:modoAnalisis==='manual'?'':(currentLead.analisisRecomendacion2||''),analisisAngulo2:modoAnalisis==='manual'?'':(currentLead.analisisAngulo2||''),
+    ...(planGeneradoIA?{diagnostico:planGeneradoIA.diagnostico,entrada_en_calor:planGeneradoIA.entrada_en_calor,consideraciones:planGeneradoIA.consideraciones}:{})
+  };
+  btn.disabled=true;btn.textContent='⏳ Generando PDF…';
+  st.className='ai-status visible';st.innerHTML='<div class="spinner"></div> Generando PDF y enviando…';
+  google.script.run
+    .withSuccessHandler(function(r){btn.disabled=false;btn.textContent='📄 Generar PDF y enviar';if(r.ok){st.className='ai-status visible success';st.textContent='✅ Plan enviado correctamente.';showToast('✅ Plan enviado a '+currentLead.nombre);setTimeout(()=>{closeModal();cargarLeads();},1800);}else{st.className='ai-status visible error-state';st.textContent='❌ Error: '+r.error;}})
+    .withFailureHandler(function(e){btn.disabled=false;btn.textContent='📄 Generar PDF y enviar';st.className='ai-status visible error-state';st.textContent='❌ Error: '+e.message;})
+    .generarYEnviarPlanDesdeWeb(currentLead.rowIndex,pd);
+}
+
+// ── EJERCICIOS ──
+let allEjerciciosCompletos=[],currentEjercicio=null;
+function cargarEjerciciosTab(){
+  google.script.run.withSuccessHandler(function(d){allEjerciciosCompletos=d.ejercicios||[];poblarFiltroProfesor();filtrarEjercicios();}).withFailureHandler(function(e){document.getElementById('ej-table-body').innerHTML=`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--red)">Error: ${e.message}</td></tr>`;}).obtenerEjerciciosCompletos();
+}
+function poblarFiltroProfesor(){
+  const profs=[...new Set(allEjerciciosCompletos.map(e=>e.profesor).filter(Boolean))].sort();
+  document.getElementById('ej-filter-profesor').innerHTML='<option value="">Todos</option>'+profs.map(p=>`<option value="${p}">${p}</option>`).join('');
+}
+function filtrarEjercicios(){
+  const asp=document.getElementById('ej-filter-aspecto').value.toLowerCase();
+  const niv=document.getElementById('ej-filter-nivel').value.toLowerCase();
+  const tipo=document.getElementById('ej-filter-tipo').value.toLowerCase();
+  const prof=document.getElementById('ej-filter-profesor').value.toLowerCase();
+  const bus=document.getElementById('ej-filter-buscar').value.toLowerCase();
+  const filt=allEjerciciosCompletos.filter(e=>{
+    if(asp&&(e.aspecto||'').toLowerCase()!==asp)return false;
+    if(niv&&(e.nivel||'').toLowerCase()!==niv)return false;
+    if(tipo&&(e.tipoEjercicio||'').toLowerCase()!==tipo)return false;
+    if(prof&&(e.profesor||'').toLowerCase()!==prof)return false;
+    if(bus&&!((e.nombre||'').toLowerCase().includes(bus)||(e.instruccion||'').toLowerCase().includes(bus)||(e.focoTecnico||'').toLowerCase().includes(bus)))return false;
+    return true;
+  });
+  renderTablaEjercicios(filt);
+  document.getElementById('ej-count').textContent=`${filt.length} de ${allEjerciciosCompletos.length} ejercicios`;
+}
+function tipoBadgeEj(tipo){if(!tipo)return '';const m={sensacion:'sensacion',aspecto:'aspecto',drill:'drill',tecnica:'tecnica','técnica':'tecnica'};const cls=m[tipo.toLowerCase()]||'default';return `<span class="ej-badge ej-badge-${cls}">${tipo}</span>`;}
+function renderTablaEjercicios(items){
+  const tb=document.getElementById('ej-table-body');
+  if(!items.length){tb.innerHTML=`<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">Sin ejercicios con esos filtros.</td></tr>`;return;}
+  tb.innerHTML=items.map(e=>`<tr><td style="font-size:11px;color:var(--text-muted)">${e.id}</td><td class="cell-nombre">${e.nombre}</td><td>${e.aspecto||'—'}</td><td>${e.nivel||'—'}</td><td>${tipoBadgeEj(e.tipoEjercicio)}</td><td class="cell-instr" title="${(e.instruccion||'').replace(/"/g,'&quot;')}">${e.instruccion||'—'}</td><td>${e.profesor||'—'}</td><td><div class="ej-actions"><button class="btn btn-outline btn-sm" onclick="abrirModalEjercicio(${e.rowIndex})">✏️</button><button class="btn btn-outline-muted btn-sm" onclick="confirmarEliminar(${e.rowIndex},'${e.nombre.replace(/'/g,"\\'")}')">🗑</button></div></td></tr>`).join('');
+}
+function abrirModalEjercicio(rowIndex){
+  const e=rowIndex?allEjerciciosCompletos.find(x=>x.rowIndex===rowIndex):null;
+  currentEjercicio=e||null;
+  document.getElementById('modal-ej-title').textContent=e?`Editar: ${e.nombre}`:'Nuevo ejercicio';
+  ['id','nombre','aspecto','nivel','tipo','profesor','video','instruccion','foco','etiqueta1','etiqueta2','etiqueta3'].forEach(f=>{
+    const k=f==='tipo'?'tipoEjercicio':f==='video'?'videoUrl':f==='foco'?'focoTecnico':f;
+    document.getElementById('ej-input-'+f).value=(e&&e[k]!==undefined?e[k]:'');
+  });
+  document.getElementById('ej-status').className='ai-status';
+  document.getElementById('modal-ej-overlay').classList.add('open');
+}
+function closeModalEjercicio(){document.getElementById('modal-ej-overlay').classList.remove('open');currentEjercicio=null;}
+function closeModalEjOutside(e){if(e.target===document.getElementById('modal-ej-overlay'))closeModalEjercicio();}
+function guardarEjercicioDesdeModal(){
+  const nombre=document.getElementById('ej-input-nombre').value.trim();
+  const aspecto=document.getElementById('ej-input-aspecto').value;
+  const nivel=document.getElementById('ej-input-nivel').value;
+  const videoUrl=document.getElementById('ej-input-video').value.trim();
+  if(!nombre||!aspecto||!nivel||!videoUrl){const st=document.getElementById('ej-status');st.className='ai-status visible error-state';st.textContent='⚠️ Nombre, aspecto, nivel y video son obligatorios.';return;}
+  const datos={rowIndex:(currentEjercicio&&currentEjercicio.rowIndex?currentEjercicio.rowIndex:null),id:document.getElementById('ej-input-id').value.trim(),nombre,aspecto,nivel,videoUrl,instruccion:document.getElementById('ej-input-instruccion').value.trim(),focoTecnico:document.getElementById('ej-input-foco').value.trim(),tipoEjercicio:document.getElementById('ej-input-tipo').value,profesor:document.getElementById('ej-input-profesor').value.trim(),etiqueta1:document.getElementById('ej-input-etiqueta1').value.trim(),etiqueta2:document.getElementById('ej-input-etiqueta2').value.trim(),etiqueta3:document.getElementById('ej-input-etiqueta3').value.trim()};
+  const st=document.getElementById('ej-status');st.className='ai-status visible';st.innerHTML='<div class="spinner"></div> Guardando...';
+  google.script.run.withSuccessHandler(function(r){if(r.ok){showToast(currentEjercicio?'✅ Ejercicio actualizado':'✅ Ejercicio creado');closeModalEjercicio();ejerciciosLoaded=false;cargarEjerciciosTab();cargarEjercicios();}else{st.className='ai-status visible error-state';st.textContent='❌ Error: '+r.error;}}).withFailureHandler(function(e){st.className='ai-status visible error-state';st.textContent='❌ Error: '+e.message;}).guardarEjercicio(datos);
+}
+function confirmarEliminar(rowIndex,nombre){
+  if(!confirm(`¿Eliminar "${nombre}"? No se puede deshacer.`))return;
+  google.script.run.withSuccessHandler(function(r){if(r.ok){showToast('🗑 Ejercicio eliminado');cargarEjerciciosTab();cargarEjercicios();}else showToast('❌ Error: '+r.error,true);}).withFailureHandler(function(e){showToast('❌ '+e.message,true);}).eliminarEjercicio(rowIndex);
+}
+
+// ── MENSAJES con historial de chat ──
+function cargarMensajes(){
+  document.getElementById('mensajes-conv-list').innerHTML='<div class="loading" style="padding:20px"><div class="spinner"></div> Cargando...</div>';
+  google.script.run
+    .withSuccessHandler(function(d){allConversaciones=d.conversaciones||[];renderConversaciones(allConversaciones);})
+    .withFailureHandler(function(e){document.getElementById('mensajes-conv-list').innerHTML=`<div style="padding:16px;color:var(--red);font-size:13px">Error: ${e.message}</div>`;})
+    .obtenerConversacionesActivas();
+}
+
+function renderConversaciones(items){
+  const c=document.getElementById('mensajes-conv-list');
+  if(!items.length){c.innerHTML='<div style="padding:20px;color:var(--text-muted);font-size:13px;text-align:center">Sin conversaciones.</div>';return;}
+  c.innerHTML=items.map(cv=>`<div class="mensajes-conv-item ${selectedConvWa===cv.whatsapp?'active':''}" onclick="seleccionarConversacion('${cv.whatsapp}','${(cv.nombre||cv.whatsapp).replace(/'/g,"\\'")}','${cv.paso}','${cv.ultimaActualizacion}')"><div class="mensajes-conv-nombre">${cv.nombre||cv.whatsapp}</div><div class="mensajes-conv-paso">📍 ${cv.paso}</div><div class="mensajes-conv-fecha">${cv.ultimaActualizacion}</div></div>`).join('');
+}
+
+function seleccionarConversacion(wa,nombre,paso,fecha){
+  selectedConvWa=wa;
+  renderConversaciones(allConversaciones);
+  const panel=document.getElementById('mensajes-panel');
+  // Mostrar esqueleto con header y área de chat vacía mientras carga
+  panel.innerHTML=`
+    <div class="mensajes-panel-header">
+      <div class="mensajes-panel-nombre">${nombre}</div>
+      <div class="mensajes-panel-wa">
+        📱 ${wa} &nbsp;·&nbsp;
+        <a href="https://wa.me/${wa}" target="_blank" class="wa-link">💬 Abrir en WhatsApp</a>
+        &nbsp;·&nbsp; <span style="color:rgba(255,255,255,0.55)">Paso: ${paso}</span>
+      </div>
+    </div>
+    <div class="chat-historial" id="chat-historial-${wa}">
+      <div class="chat-loading"><div class="spinner"></div> Cargando historial...</div>
+    </div>
+    <div class="mensajes-compose">
+      <textarea class="mensajes-textarea" id="msg-input-${wa}" placeholder="Escribí tu mensaje para ${nombre}..."></textarea>
+      <button class="btn btn-whatsapp" onclick="enviarMensajePanel('${wa}','${nombre.replace(/'/g,"\\'")}')">💬 Enviar</button>
+    </div>`;
+
+  // Cargar historial real desde ChatLog
+  google.script.run
+    .withSuccessHandler(function(d){
+      const hist=document.getElementById('chat-historial-'+wa);
+      if(!hist)return;
+      const msgs=d.mensajes||[];
+      if(!msgs.length){hist.innerHTML='<div class="chat-empty">Sin mensajes registrados todavía.</div>';return;}
+      hist.innerHTML=msgs.map(m=>{
+        const esPanel=m.tipo==='texto'&&m.direccion==='saliente'&&m.contenido.startsWith('Panel:');
+        const dir=m.direccion==='saliente'?'saliente'+(esPanel?' panel':''):'entrante';
+        const burbuja=m.tipo==='video'||m.tipo==='video_drive'
+          ?`<div class="chat-tipo-video">🎥 Video enviado</div>`
+          :`<div class="chat-bubble">${m.contenido.replace(/\n/g,'<br>')}</div>`;
+        return `<div class="chat-msg ${dir}">${burbuja}<div class="chat-ts">${m.timestamp}</div></div>`;
+      }).join('');
+      // Scroll al fondo
+      hist.scrollTop=hist.scrollHeight;
+    })
+    .withFailureHandler(function(){
+      const hist=document.getElementById('chat-historial-'+wa);
+      if(hist)hist.innerHTML='<div class="chat-empty">No se pudo cargar el historial.</div>';
+    })
+    .obtenerChatLogPorWhatsapp(wa);
+}
+
+function enviarMensajePanel(wa,nombre){
+  const input=document.getElementById('msg-input-'+wa);
+  const msg=(input?input.value||'':'').trim();
+  if(!msg){showToast('Escribí un mensaje antes de enviar',true);return;}
+  if(!confirm(`¿Enviar este mensaje a ${nombre}?`))return;
+  const btn=document.querySelector('.mensajes-compose .btn-whatsapp');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Enviando...';}
+  google.script.run
+    .withSuccessHandler(function(r){
+      if(btn){btn.disabled=false;btn.textContent='💬 Enviar';}
+      if(r.ok){
+        showToast('✅ Mensaje enviado a '+nombre);
+        if(input)input.value='';
+        // Refrescar historial
+        seleccionarConversacion(wa,nombre,'—','—');
+      }else showToast('❌ Error: '+r.error,true);
+    })
+    .withFailureHandler(function(e){if(btn){btn.disabled=false;btn.textContent='💬 Enviar';}showToast('❌ Error: '+e.message,true);})
+    .enviarMensajeDesdePanel(wa,msg);
+}
+
+// ── REINTEGRO ──
+function solicitarReintegro(rowIndex,nombre,monto){
+  if(!confirm(`¿Reintegrar el pago de $${monto} a ${nombre}?`))return;
+  showToast('⏳ Procesando reintegro...');
+  google.script.run.withSuccessHandler(function(r){if(r.ok){showToast('✅ Reintegro procesado');cargarLeads();}else showToast('❌ Error: '+r.error,true);}).withFailureHandler(function(e){showToast('❌ '+e.message,true);}).procesarReintegroDesdePanel(rowIndex);
+}
+</script>
+</body>
+</html>
