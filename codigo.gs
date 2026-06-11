@@ -460,20 +460,23 @@ function procesarMensajeEntrante(from, text) {
     }
 
     if (paso === "esperando_feedback") {
-      const score = parseInt(text.trim(), 10);
-      if (!isNaN(score) && score >= 1 && score <= 5) {
-        guardarFeedbackScore(from, score);
-        if (score <= 3) { enviarMensajeWhatsApp(from, "Gracias " + (conv.nombre||"") + " \ud83d\ude4f Lamentamos que el plan no haya sido todo lo \u00fatil que esperabas.\n\nPodemos ofrecerte un ejercicio alternativo o conectarte directamente con el profe para ajustar tu plan. \u00bfQuer\u00e9s que te enviemos una opci\u00f3n?\n\n1\ufe0f\u20e3 S\u00ed, quiero un ejercicio alternativo\n2\ufe0f\u20e3 Prefiero consultar con el profe"); guardarConversacion(from, { ...conv, paso: "esperando_feedback_followup" }); }
-        else { enviarMensajeWhatsApp(from, "\u00a1Gracias " + (conv.nombre||"") + "! \ud83d\ude4f Nos alegra que haya sido \u00fatil \u26f3"); guardarConversacion(from, { ...conv, paso: "completo" }); }
-      } else { enviarMensajeWhatsApp(from, "Por favor respond\u00e9 con un n\u00famero del 1 al 5."); }
-      return;
-    }
-    if (paso === "esperando_feedback_followup") {
-      if (text === "1") { enviarMensajeWhatsApp(from, "Perfecto \u26f3 Estoy buscando un ejercicio alternativo para vos..."); const datos = { ...conv, paso: "completo", ejvsplan: "1" }; guardarConversacion(from, datos); registrarSesion(from, datos); }
-      else if (text === "2") { enviarMensajeWhatsApp(from, "Entendido \u26f3 El profe se va a comunicar con vos a la brevedad para ajustar tu plan."); guardarConversacion(from, { ...conv, paso: "completo" }); }
-      else { enviarMensajeWhatsApp(from, "Respond\u00e9 1 para ejercicio alternativo o 2 para consultar con el profe."); }
-      return;
-    }
+  const score = parseInt(text.trim(), 10);
+  if (!isNaN(score) && score >= 1 && score <= 5) {
+    guardarFeedbackScore(from, score);
+    enviarMensajeWhatsApp(from, "\u00a1Gracias " + (conv.nombre||"") + "! \ud83d\ude4f\n\n\u00bfTen\u00e9s alg\u00fan comentario o sugerencia para nosotros? \u26f3 _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
+    guardarConversacion(from, { ...conv, paso: "esperando_comentario_feedback", feedback_score: score });
+  } else { enviarMensajeWhatsApp(from, "Por favor respond\u00e9 con un n\u00famero del 1 al 5."); }
+  return;
+}
+
+if (paso === "esperando_comentario_feedback") {
+  const comentario = text.toLowerCase() === "saltar" ? "" : text.trim();
+  if (comentario) guardarFeedback(from, comentario);
+  enviarMensajeWhatsApp(from, "Muchas gracias " + (conv.nombre||"") + " \ud83d\ude4f Tu opini\u00f3n nos ayuda a mejorar \u26f3");
+  guardarConversacion(from, { ...conv, paso: "completo" });
+  return;
+}
+
 
     // FALLBACK — siempre vuelve al menu si el usuario es conocido
     const nombreFallback = conv.nombre || obtenerNombreLead(from);
