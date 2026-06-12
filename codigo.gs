@@ -184,7 +184,7 @@ function procesarMensajeEntrante(from, text) {
         enviarMenuPrincipal(from, nombre);
         guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
       } else {
-        enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito IA*, tu coach de golf por WhatsApp.\n\n\u00bfCu\u00e1l es tu nombre?");
+        enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\n\u00bfCu\u00e1l es tu nombre?");
         guardarConversacion(from, { paso: "esperando_nombre", nombre: "", handicap: "", aspecto: "", ejvsplan: "", video_url1: "", video_url2: "" });
       }
       return;
