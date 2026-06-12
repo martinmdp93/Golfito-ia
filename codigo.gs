@@ -153,7 +153,7 @@ function obtenerHandicapLead(from) {
 }
 
 // ============================================
-// MENU PRINCIPAL — con opcion 6 Validar mi pago
+// MENU PRINCIPAL
 // ============================================
 function enviarMenuPrincipal(from, nombre) {
   enviarMensajeWhatsApp(from,
@@ -166,6 +166,7 @@ function enviarMenuPrincipal(from, nombre) {
     "6\ufe0f\u20e3 *Validar mi pago*"
   );
 }
+
 // ============================================
 // MOTOR CONVERSACIONAL
 // ============================================
@@ -177,7 +178,6 @@ function procesarMensajeEntrante(from, text) {
     const paso = conv.paso || "inicio";
     const textLower = text.toLowerCase();
 
-    // REINICIO / SALUDO
     if (textLower === "hola" || textLower === "inicio" || paso === "inicio") {
       if (esUsuarioConocido(from)) {
         const nombre = obtenerNombreLead(from);
@@ -190,7 +190,6 @@ function procesarMensajeEntrante(from, text) {
       return;
     }
 
-    // MENU PRINCIPAL
     if (paso === "completo" || paso === "plan_solicitado" || paso === "esperando_menu_principal") {
       if (paso === "completo") {
         if (text.toUpperCase() === "PLAN") {
@@ -237,8 +236,6 @@ function procesarMensajeEntrante(from, text) {
       } else if (v === "5") {
         enviarMensajeWhatsApp(from, "\u00a1Claro! Escrib\u00ed tu consulta o comentario y te respondemos a la brevedad \ud83d\udcdd");
         guardarConversacion(from, { ...conv, paso: "esperando_consulta" });
-
-      // OPCION 6: VALIDAR PAGO
       } else if (v === "6") {
         enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
         const externalRef = conv.mp_external_ref || conv.mp_codigo_plan || "";
@@ -345,7 +342,6 @@ function procesarMensajeEntrante(from, text) {
     }
     if (paso === "esperando_video_analisis") { enviarMensajeWhatsApp(from, "Para enviar el video us\u00e1 el clip \ud83d\udcce de WhatsApp."); return; }
 
-    // ESPERANDO PAGO ANALISIS — siempre vuelve al menu si falla
     if (paso === "esperando_pago_analisis") {
       const nombre = conv.nombre || obtenerNombreLead(from);
       enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
@@ -400,15 +396,10 @@ function procesarMensajeEntrante(from, text) {
       return;
     }
 
-    // ============================================
-    // FIX 4: esperando_comentarios_alumno — si MODO_TEST_PLAN, saltear pago completamente
-    // ============================================
     if (paso === "esperando_comentarios_alumno") {
       const comentarios = textLower === "saltar" ? "" : text.trim();
       const nombre = conv.nombre || obtenerNombreLead(from);
-
       if (MODO_TEST_PLAN) {
-        // Modo test: registrar sesion directamente sin pago
         Logger.log("MODO_TEST_PLAN activo — saltando pago en esperando_comentarios_alumno");
         const datos = { ...conv, paso: "completo", comentarios_alumno: comentarios };
         guardarConversacion(from, datos);
@@ -423,7 +414,6 @@ function procesarMensajeEntrante(from, text) {
           enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Para confirmar tu plan, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + mpRes.link + "\n\nUna vez confirmado el pago te avisamos y empezamos con tu plan \ud83c\udfcc\ufe0f");
           const datosConPago = { ...conv, paso: "esperando_pago_plan", comentarios_alumno: comentarios, mp_codigo_plan: codigoPlan };
           guardarConversacion(from, datosConPago);
-          // Registrar sesion ahora con status pendiente, para que procesarPagoMP la encuentre
           registrarSesion(from, { ...datosConPago, ejvsplan: "3" });
         } else {
           Logger.log("MP fallo: " + (mpRes.error||""));
@@ -442,7 +432,6 @@ function procesarMensajeEntrante(from, text) {
       return;
     }
 
-    // ESPERANDO PAGO PLAN — siempre vuelve al menu si falla
     if (paso === "esperando_pago_plan") {
       const nombrePlan = conv.nombre || obtenerNombreLead(from);
       enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
@@ -467,31 +456,29 @@ function procesarMensajeEntrante(from, text) {
     }
 
     if (paso === "esperando_feedback") {
-  const score = parseInt(text.trim(), 10);
-  if (!isNaN(score) && score >= 1 && score <= 5) {
-    guardarFeedbackScore(from, score);
-    enviarMensajeWhatsApp(from, "\u00a1Gracias " + (conv.nombre||"") + "! \ud83d\ude4f\n\n\u00bfTen\u00e9s alg\u00fan comentario o sugerencia para nosotros? \u26f3 _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
-    guardarConversacion(from, { ...conv, paso: "esperando_comentario_feedback", feedback_score: score });
-  } else { enviarMensajeWhatsApp(from, "Por favor respond\u00e9 con un n\u00famero del 1 al 5."); }
-  return;
-}
+      const score = parseInt(text.trim(), 10);
+      if (!isNaN(score) && score >= 1 && score <= 5) {
+        guardarFeedbackScore(from, score);
+        enviarMensajeWhatsApp(from, "\u00a1Gracias " + (conv.nombre||"") + "! \ud83d\ude4f\n\n\u00bfTen\u00e9s alg\u00fan comentario o sugerencia para nosotros? \u26f3 _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
+        guardarConversacion(from, { ...conv, paso: "esperando_comentario_feedback", feedback_score: score });
+      } else { enviarMensajeWhatsApp(from, "Por favor respond\u00e9 con un n\u00famero del 1 al 5."); }
+      return;
+    }
+    if (paso === "esperando_comentario_feedback") {
+      const comentario = text.toLowerCase() === "saltar" ? "" : text.trim();
+      if (comentario) guardarFeedback(from, comentario);
+      enviarMensajeWhatsApp(from, "Muchas gracias " + (conv.nombre||"") + " \ud83d\ude4f Tu opini\u00f3n nos ayuda a mejorar \u26f3");
+      guardarConversacion(from, { ...conv, paso: "completo" });
+      return;
+    }
 
-if (paso === "esperando_comentario_feedback") {
-  const comentario = text.toLowerCase() === "saltar" ? "" : text.trim();
-  if (comentario) guardarFeedback(from, comentario);
-  enviarMensajeWhatsApp(from, "Muchas gracias " + (conv.nombre||"") + " \ud83d\ude4f Tu opini\u00f3n nos ayuda a mejorar \u26f3");
-  guardarConversacion(from, { ...conv, paso: "completo" });
-  return;
-}
-
-
-    // FALLBACK — siempre vuelve al menu si el usuario es conocido
     const nombreFallback = conv.nombre || obtenerNombreLead(from);
     if (nombreFallback) { enviarMenuPrincipal(from, nombreFallback); guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); }
     else { enviarMensajeWhatsApp(from, "Cualquier otra consulta escribinos \u26f3"); }
 
   } finally { lock.releaseLock(); }
 }
+
 // ============================================
 // PROCESAR VIDEO ENTRANTE
 // ============================================
@@ -516,11 +503,13 @@ function procesarVideoEntrante(from, mediaId) {
 
       if (paso === "esperando_video_analisis") {
         const nombreAnal = conv.nombre || obtenerNombreLead(from);
-        // MODO_TEST_ANALISIS controla pago de analisis (opcion 2)
         if (MODO_TEST_ANALISIS) {
           enviarMensajeWhatsApp(from, "\u23f3 Recib\u00ed tu video " + nombreAnal + ". Analizando tu swing con IA, dame un momento...");
-          const datos = { ...conv, paso: "analizando_video", video_url1: driveUrl };
-          guardarConversacion(from, datos); procesarAnalisisVideo(from, datos, false);
+          const datos = { ...conv, paso: "analizando_video", video_url1: driveUrl, ejvsplan: "2" };
+          // FIX BUG 2: registrar sesion ANTES del analisis para que el video quede en Sheets
+          registrarSesion(from, datos);
+          guardarConversacion(from, datos);
+          procesarAnalisisVideo(from, datos, false);
         } else {
           const codigoAnal = "ANAL-" + String(Date.now()).slice(-6);
           const mpResAnal = crearPreferenciaPago(from, nombreAnal, "analisis", codigoAnal);
@@ -528,13 +517,14 @@ function procesarVideoEntrante(from, mediaId) {
             enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + nombreAnal + " \u2705\n\nPara analizar tu swing realiz\u00e1 el pago de *$ 5.000* ac\u00e1:\n" + mpResAnal.link + "\n\nUna vez que pagues, escribinos ac\u00e1 y verificamos el pago \u26f3");
             const datosAnal = { ...conv, paso: "esperando_pago_analisis", video_url1: driveUrl, mp_external_ref: mpResAnal.externalRef || codigoAnal, ejvsplan: "2" };
             guardarConversacion(from, datosAnal);
-            // Registrar sesion ahora para que procesarPagoMP la encuentre
             registrarSesion(from, datosAnal);
           } else {
             Logger.log("MP fallo en analisis, fallback directo: " + (mpResAnal.error||""));
             enviarMensajeWhatsApp(from, "\u23f3 Recib\u00ed tu video " + nombreAnal + ". Analizando tu swing con IA, dame un momento...");
-            const datos = { ...conv, paso: "analizando_video", video_url1: driveUrl };
-            guardarConversacion(from, datos); procesarAnalisisVideo(from, datos, false);
+            const datos = { ...conv, paso: "analizando_video", video_url1: driveUrl, ejvsplan: "2" };
+            registrarSesion(from, datos);
+            guardarConversacion(from, datos);
+            procesarAnalisisVideo(from, datos, false);
           }
         }
       } else if (paso === "esperando_video_plan_1") {
@@ -549,7 +539,6 @@ function procesarVideoEntrante(from, mediaId) {
         enviarMensajeWhatsApp(from, "Recib\u00ed el video complementario \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
         guardarConversacion(from, { ...datos, paso: "esperando_comentarios_alumno" });
       } else if (paso === "esperando_video_plan") {
-        // FIX 4: MODO_TEST_PLAN — saltear pago en video también
         if (MODO_TEST_PLAN) {
           enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + conv.nombre + " \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
           guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: driveUrl });
@@ -591,7 +580,6 @@ function procesarAnalisisVideo(from, conv, esSegundoVideo) {
       enviarMenuPrincipal(from, nombre);
       const datos = { ...conv, paso: "esperando_menu_principal", analisis1: a };
       guardarConversacion(from, datos);
-      // ejvsplan=2: actualizar fila existente con el analisis (no crear nueva)
       if (safeString(conv.ejvsplan) === "2") actualizarSesionAnalisis(from, a, null);
     } else {
       enviarMenuPrincipal(from, nombre);
@@ -709,14 +697,11 @@ function registrarSesion(from, conv, analisis1, analisis2) {
 
 function generarCodigoPlan() { return "PLAN-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-6); }
 
-// Actualiza la fila mas reciente de ejvsplan=2 para este whatsapp con los datos del analisis
-// Evita crear filas duplicadas — la fila ya fue creada cuando llego el pago
 function actualizarSesionAnalisis(from, analisis1, analisis2) {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
     if (!sheet) return;
     const data = sheet.getDataRange().getValues();
-    // Buscar la fila mas reciente de este whatsapp con ejvsplan=2
     for (let i = data.length - 1; i >= 1; i--) {
       if (safeString(data[i][COL.WHATSAPP-1]) !== from) continue;
       if (safeString(data[i][COL.EJVSPLAN-1]) !== "2") continue;
@@ -742,6 +727,7 @@ function actualizarSesionAnalisis(from, analisis1, analisis2) {
     Logger.log("actualizarSesionAnalisis: no se encontro fila para " + from);
   } catch(err) { Logger.log("Error actualizarSesionAnalisis: " + err); }
 }
+
 function obtenerCodigoPlanPendiente(from) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
   if (!sheet) return "";
@@ -788,6 +774,11 @@ function enviarDocumentoWhatsApp(telefono, fileId, fileName) {
     payload: JSON.stringify({ messaging_product: "whatsapp", to: telefono, type: "document", document: { id: uploadData.id, filename: fileName, caption: "\u26f3 Ac\u00e1 est\u00e1 tu plan de entrenamiento personalizado. \u00a1Cualquier consulta escribinos \u26f3!" } })
   });
 }
+
+// ============================================
+// FIX BUG 1: procesarSesionesPendientes
+// Saltear planes (ejvsplan=3) con pago_status=pagado — ya manejados por el flujo
+// ============================================
 function procesarSesionesPendientes() {
   const lock = LockService.getScriptLock(); if (!lock.tryLock(3000)) return;
   try {
@@ -804,6 +795,11 @@ function procesarSesionesPendientes() {
       const pagoStatusRow = safeString(row[COL.PAGO_STATUS-1]).toLowerCase();
       if (!whatsapp || status==="enviado" || status==="procesando" || status==="pendiente_manual" || contenidoEnviado) continue;
       if (pagoStatusRow === "pendiente") continue;
+      // FIX BUG 1: planes pagados ya fueron manejados por el flujo conversacional
+      if (ejvsplanRaw === "3" && pagoStatusRow === "pagado") {
+        sesionesSheet.getRange(rowNumber, COL.STATUS).setValue("pendiente_manual");
+        continue;
+      }
       let nombre = ""; for (let j=1;j<leads.length;j++) { if (safeString(leads[j][0])===whatsapp) { nombre=safeString(leads[j][1]); break; } }
       try {
         sesionesSheet.getRange(rowNumber,COL.STATUS).setValue("procesando");
@@ -909,9 +905,6 @@ function obtenerConversacionesActivas() {
   return { conversaciones };
 }
 
-// ============================================
-// NUEVA FUNCION: obtener historial de chat para un whatsapp
-// ============================================
 function obtenerChatLogPorWhatsapp(whatsapp) {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog");
@@ -925,27 +918,62 @@ function obtenerChatLogPorWhatsapp(whatsapp) {
       const direccion = safeString(data[i][2]);
       const tipo = safeString(data[i][3]);
       const contenido = safeString(data[i][4]);
-      // Mostrar solo mensajes de texto (no logs internos de video_drive, etc)
       if (tipo !== "texto" && tipo !== "video" && tipo !== "video_drive") continue;
       mensajes.push({
         timestamp: ts ? Utilities.formatDate(new Date(ts), Session.getScriptTimeZone(), "dd/MM HH:mm") : "—",
-        direccion,
-        tipo,
+        direccion, tipo,
         contenido: contenido.length > 300 ? contenido.slice(0, 300) + "…" : contenido
       });
     }
-    // Devolver los últimos 60 mensajes
     return { mensajes: mensajes.slice(-60) };
-  } catch(err) {
-    Logger.log("Error obtenerChatLogPorWhatsapp: " + err);
-    return { mensajes: [] };
-  }
+  } catch(err) { Logger.log("Error obtenerChatLogPorWhatsapp: " + err); return { mensajes: [] }; }
 }
 
 function enviarMensajeDesdePanel(whatsapp, mensaje) {
   try { if (!whatsapp||!mensaje) return {ok:false,error:"Numero y mensaje requeridos"}; enviarMensajeWhatsApp(whatsapp,mensaje); return {ok:true}; }
   catch(err) { Logger.log("Error enviarMensajeDesdePanel: "+err); return {ok:false,error:err.toString()}; }
 }
+
+// ============================================
+// FIX BUG 3: obtenerConsultas y marcarConsultaRespondida
+// ============================================
+function obtenerConsultas() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONSULTAS_SHEET);
+    const leadsSheet = ss.getSheetByName(LEADS_SHEET);
+    if (!sheet) return { consultas: [] };
+    const data = sheet.getDataRange().getValues();
+    const leadsData = leadsSheet ? leadsSheet.getDataRange().getValues() : [];
+    const leadsMap = {};
+    for (let i=1;i<leadsData.length;i++) { const wa=safeString(leadsData[i][0]); if (wa) leadsMap[wa]={nombre:safeString(leadsData[i][1])}; }
+    const consultas = [];
+    for (let i=1;i<data.length;i++) {
+      const whatsapp = safeString(data[i][1]);
+      const li = leadsMap[whatsapp]||{nombre:""};
+      consultas.push({
+        rowIndex: i+1,
+        timestamp: data[i][0] ? Utilities.formatDate(new Date(data[i][0]),Session.getScriptTimeZone(),"dd/MM/yyyy HH:mm") : "—",
+        whatsapp,
+        nombre: li.nombre || safeString(data[i][2]),
+        consulta: safeString(data[i][3]),
+        respondida: safeString(data[i][4])
+      });
+    }
+    consultas.sort((a,b) => a.respondida==="no" && b.respondida!=="no" ? -1 : 1);
+    return { consultas };
+  } catch(err) { Logger.log("Error obtenerConsultas: "+err); return { consultas: [] }; }
+}
+
+function marcarConsultaRespondida(rowIndex) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONSULTAS_SHEET);
+    if (!sheet) return {ok:false,error:"No encontre Consultas"};
+    sheet.getRange(rowIndex, 5).setValue("si");
+    return {ok:true};
+  } catch(err) { return {ok:false,error:err.toString()}; }
+}
+
 function obtenerEjerciciosParaSelector() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EXERCISES_SHEET); if (!sheet) return [];
   const data = sheet.getDataRange().getValues(); const ejercicios = [];
@@ -1031,6 +1059,7 @@ function generarYEnviarPlanDesdeWeb(rowIndex, planData) {
     return {ok:true};
   } catch(err) { Logger.log("Error generarYEnviarPlanDesdeWeb: "+err); return {ok:false,error:err.toString()}; }
 }
+
 // ============================================
 // GENERAR HTML DEL PLAN
 // ============================================
@@ -1112,13 +1141,10 @@ function analizarSwingConGemini(driveFileId) {
 
 // ============================================
 // MERCADOPAGO
-// FIX 1: montos corregidos — 1000 CLP análisis, 15000 CLP plan
 // ============================================
 function crearPreferenciaPago(whatsapp, nombre, tipo, codigoPlan) {
   try {
     const esAnalisis = tipo==="analisis";
-    // Montos reales en CLP. MP requiere mínimo ~100-1000 CLP para procesar.
-    // Para pruebas usa 1000 (análisis) y 15000 (plan). En producción: 5000 y 15000.
     const monto = esAnalisis ? 1000 : 3000;
     const externalRef = codigoPlan+"_"+whatsapp;
     const payload = { items:[{title:(esAnalisis?"Analisis de swing — ":"Plan personalizado — ")+nombre,quantity:1,unit_price:monto,currency_id:"CLP"}], payer:{name:nombre}, external_reference:externalRef, notification_url:MP_WEBHOOK_URL+"?source=mp", back_urls:{success:"https://wa.me/"+whatsapp,failure:"https://wa.me/"+whatsapp,pending:"https://wa.me/"+whatsapp}, auto_return:"approved", statement_descriptor:"Golfito" };
@@ -1133,7 +1159,6 @@ function crearPreferenciaPago(whatsapp, nombre, tipo, codigoPlan) {
 function procesarPagoMP(paymentId) {
   try {
     Logger.log("Procesando pago MP: " + paymentId);
-    // Deduplicacion: ignorar si este paymentId ya fue procesado
     const props = PropertiesService.getScriptProperties();
     const guardKey = "mp_processed_" + String(paymentId);
     if (props.getProperty(guardKey)) { Logger.log("Pago duplicado ignorado: " + paymentId); return; }
@@ -1154,7 +1179,6 @@ function procesarPagoMP(paymentId) {
       const ejvsplan = safeString(data[i][COL.EJVSPLAN-1]); const conv = obtenerConversacion(whatsapp); const nombre = obtenerNombreLead(whatsapp)||conv.nombre||"";
       if (ejvsplan==="2") {
         enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Pago confirmado "+nombre+"! Analizando tu swing con IA, dame un momento...");
-        // Asegurar que conv tenga video_url1 desde la fila de Sesiones
         const convConVideo = { ...conv, paso: "analizando_video", video_url1: safeString(data[i][COL.VIDEO_URL1-1]) || conv.video_url1 || "", ejvsplan: "2" };
         guardarConversacion(whatsapp, convConVideo); procesarAnalisisVideo(whatsapp, convConVideo, false);
       } else if (ejvsplan==="3") {
@@ -1205,10 +1229,16 @@ function procesarReintegroMP(paymentId, monto) {
 // ============================================
 // HELPERS
 // ============================================
+// FIX BUG 2: obtenerUltimosVideosSesion busca en cualquier sesion (ejvsplan=2 incluido)
 function obtenerUltimosVideosSesion(from) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET); if (!sheet) return {url1:"",url2:""};
   const data = sheet.getDataRange().getValues();
-  for (let i=data.length-1;i>=1;i--) { if (safeString(data[i][COL.WHATSAPP-1])!==from) continue; const url1=safeString(data[i][COL.VIDEO_URL1-1]); const url2=safeString(data[i][COL.VIDEO_URL2-1]); if (url1||url2) return {url1,url2}; }
+  for (let i=data.length-1;i>=1;i--) {
+    if (safeString(data[i][COL.WHATSAPP-1])!==from) continue;
+    const url1=safeString(data[i][COL.VIDEO_URL1-1]);
+    const url2=safeString(data[i][COL.VIDEO_URL2-1]);
+    if (url1||url2) return {url1,url2};
+  }
   return {url1:"",url2:""};
 }
 function sanitizarNombre(nombre) { return safeString(nombre).replace(/[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ\s]/g,'').split(' ')[0].replace(/^\w/,c=>c.toUpperCase()); }
@@ -1276,7 +1306,6 @@ function limpiarCacheAnalisis() {
   const props=PropertiesService.getScriptProperties(); const keys=props.getKeys(); let eliminadas=0;
   keys.forEach(k => {
     if (k.startsWith('analisis_')||k.startsWith('media_processed_')) { props.deleteProperty(k); eliminadas++; }
-    // Limpiar guards de pago MP con mas de 24 horas
     if (k.startsWith('mp_processed_')) { const ts=props.getProperty(k); if (!ts||Date.now()-parseInt(ts)>24*60*60*1000) { props.deleteProperty(k); eliminadas++; } }
     if (k.startsWith('panel_token_')) { const ts=props.getProperty(k); if (!ts||Date.now()-parseInt(ts)>8*60*60*1000) { props.deleteProperty(k); eliminadas++; } }
   });
