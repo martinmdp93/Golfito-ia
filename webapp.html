@@ -188,7 +188,6 @@
   .mensajes-panel-nombre{font-family:'Playfair Display',serif;font-size:18px;}
   .mensajes-panel-wa{font-size:11px;color:rgba(255,255,255,0.65);margin-top:4px;display:flex;align-items:center;gap:10px;}
   .mensajes-panel-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px;font-style:italic;padding:40px;}
-  /* Chat bubbles */
   .chat-historial{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px;background:#f5f5f5;min-height:300px;max-height:420px;}
   .chat-msg{display:flex;flex-direction:column;max-width:78%;}
   .chat-msg.entrante{align-self:flex-start;}
@@ -206,6 +205,13 @@
   .mensajes-textarea:focus{border-color:var(--green);background:var(--white);}
   .wa-link{display:inline-flex;align-items:center;gap:6px;color:#25d366;font-weight:600;text-decoration:none;font-size:12px;}
   .wa-link:hover{text-decoration:underline;}
+  /* Consultas */
+  .consulta-card{background:var(--white);border-radius:var(--radius);padding:18px 22px;box-shadow:var(--shadow);display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-left:4px solid var(--gold);transition:box-shadow 0.2s;}
+  .consulta-card.respondida{border-left-color:var(--green-light);opacity:0.7;}
+  .consulta-nombre{font-weight:600;font-size:15px;color:var(--green);}
+  .consulta-wa{font-size:12px;color:var(--text-muted);margin-top:2px;}
+  .consulta-texto{font-size:13px;color:var(--text);margin-top:8px;line-height:1.6;background:var(--cream);padding:10px 14px;border-radius:var(--radius-sm);}
+  .consulta-fecha{font-size:11px;color:var(--text-muted);margin-top:6px;}
   /* Login */
   .login-overlay{position:fixed;inset:0;background:var(--green);z-index:9999;display:flex;align-items:center;justify-content:center;}
   .login-overlay.hidden{display:none;}
@@ -256,6 +262,7 @@
     <button class="tab" onclick="showTab('historial',this)">✅ Historial</button>
     <button class="tab" onclick="showTab('ejercicios',this)">📚 Ejercicios</button>
     <button class="tab" onclick="showTab('mensajes',this)">💬 Mensajes</button>
+    <button class="tab" onclick="showTab('consultas',this)">📩 Consultas</button>
   </div>
 
   <div id="tab-pendientes">
@@ -290,7 +297,6 @@
     <div id="ej-count" style="font-size:12px;color:var(--text-muted);margin-top:10px"></div>
   </div>
 
-  <!-- MENSAJES con historial de chat -->
   <div id="tab-mensajes" style="display:none">
     <h2 class="section-title">Mensajes</h2>
     <p class="section-sub">Historial completo de conversaciones. Escribile directamente a cualquier alumno.</p>
@@ -305,6 +311,22 @@
         <div class="mensajes-panel-empty">Seleccioná una conversación para ver el historial completo.</div>
       </div>
     </div>
+  </div>
+
+  <!-- NUEVA PESTAÑA CONSULTAS -->
+  <div id="tab-consultas" style="display:none">
+    <h2 class="section-title">Consultas</h2>
+    <p class="section-sub">Mensajes y consultas enviadas por los alumnos desde el bot.</p>
+    <div style="display:flex;gap:10px;margin-bottom:18px;align-items:center;">
+      <select id="consultas-filtro" onchange="filtrarConsultas()" style="padding:7px 12px;border:1.5px solid var(--cream-dark);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--cream);outline:none;">
+        <option value="">Todas</option>
+        <option value="no">Sin responder</option>
+        <option value="si">Respondidas</option>
+      </select>
+      <button class="btn btn-outline-muted btn-sm" onclick="cargarConsultas()">🔄 Actualizar</button>
+      <span id="consultas-count" style="font-size:12px;color:var(--text-muted);margin-left:4px"></span>
+    </div>
+    <div id="consultas-list" class="cards-grid"><div class="loading"><div class="spinner"></div> Cargando consultas...</div></div>
   </div>
 </main>
 
@@ -444,8 +466,9 @@
 <div class="toast" id="toast"></div>
 <script>
 let currentLead=null,allLeads=[],allEjercicios=[],planGeneradoIA=null;
-let ejerciciosLoaded=false,mensajesLoaded=false,modoAnalisis='ia';
+let ejerciciosLoaded=false,mensajesLoaded=false,consultasLoaded=false,modoAnalisis='ia';
 let selectedConvWa=null,allConversaciones=[];
+let allConsultas=[];
 const TOKEN_KEY='golfito_panel_token';
 
 window.onload=function(){
@@ -464,24 +487,14 @@ function doLogin(){
   const btn=document.getElementById('login-btn'),err=document.getElementById('login-error'),sp=document.getElementById('login-spinner');
   if(!pw){err.textContent='Ingresá la contraseña.';return;}
   btn.disabled=true;err.textContent='';sp.classList.add('visible');
-  // Timeout de seguridad: si no responde en 15s mostrar error
-  const timeout=setTimeout(function(){
-    btn.disabled=false;sp.classList.remove('visible');
-    err.textContent='Tiempo de espera agotado. Verificá que el deployment esté actualizado.';
-  },15000);
+  const timeout=setTimeout(function(){btn.disabled=false;sp.classList.remove('visible');err.textContent='Tiempo de espera agotado.';},15000);
   google.script.run
     .withSuccessHandler(function(r){
-      clearTimeout(timeout);
-      btn.disabled=false;sp.classList.remove('visible');
+      clearTimeout(timeout);btn.disabled=false;sp.classList.remove('visible');
       if(r.ok){sessionStorage.setItem(TOKEN_KEY,r.token);mostrarPanel();}
       else{err.textContent=r.error||'Contraseña incorrecta.';document.getElementById('login-password').value='';document.getElementById('login-password').focus();}
     })
-    .withFailureHandler(function(e){
-      clearTimeout(timeout);
-      btn.disabled=false;sp.classList.remove('visible');
-      err.textContent='Error al conectar: '+(e&&e.message?e.message:'revisar deployment');
-      console.error('Login error:',e);
-    })
+    .withFailureHandler(function(e){clearTimeout(timeout);btn.disabled=false;sp.classList.remove('visible');err.textContent='Error al conectar: '+(e&&e.message?e.message:'revisar deployment');})
     .validarPasswordPanel(pw);
 }
 function showToast(msg,isError){const t=document.getElementById('toast');t.textContent=msg;t.className='toast'+(isError?' error':'')+' show';setTimeout(()=>t.className='toast',3000);}
@@ -499,9 +512,10 @@ function actualizarStats(){
 }
 function showTab(tab,el){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');
-  ['pendientes','historial','ejercicios','mensajes'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'':'none');
+  ['pendientes','historial','ejercicios','mensajes','consultas'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'':'none');
   if(tab==='ejercicios'&&!ejerciciosLoaded){ejerciciosLoaded=true;cargarEjerciciosTab();}
   if(tab==='mensajes'&&!mensajesLoaded){mensajesLoaded=true;cargarMensajes();}
+  if(tab==='consultas'&&!consultasLoaded){consultasLoaded=true;cargarConsultas();}
 }
 function aplicarFiltros(){renderPendientes(allLeads.filter(l=>l.status==='pendiente_manual'));renderHistorial(allLeads.filter(l=>l.status!=='pendiente_manual'));}
 function tipoLabel(e){if(e==='2')return '🤖 Análisis de video';if(e==='3')return '📋 Plan personalizado';return '🎯 Ejercicio gratis';}
@@ -517,6 +531,50 @@ function renderHistorial(items){
   const c=document.getElementById('historial-list');
   if(!items||!items.length){c.innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin historial aún</div><div class="empty-sub">Las sesiones completadas aparecerán acá.</div></div>';return;}
   c.innerHTML=items.map(l=>`<div class="historial-card" onclick="abrirModal(${l.rowIndex})"><div><div class="historial-name">${l.nombre||'Sin nombre'}</div><div class="historial-meta">${l.nivel} · ${tipoLabel(l.ejvsplan)}</div><div class="historial-meta">${l.fecha}${l.codigoPlan?' · '+l.codigoPlan:''}</div>${l.comentariosAlumno?`<div class="historial-feedback">💬 "${l.comentariosAlumno}"</div>`:''} ${l.feedbackAlumno?`<div class="historial-feedback">⭐ ${l.feedbackScore?l.feedbackScore+'/5':''} "${l.feedbackAlumno}"</div>`:''}</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="badge badge-enviado">✅ Enviado</span>${l.feedbackAlumno?'<span class="badge badge-feedback">💬 Con feedback</span>':''}${l.pagoStatus==='pagado'&&l.ejvsplan==='3'?`<button class="btn btn-outline-muted btn-sm" onclick="event.stopPropagation();solicitarReintegro(${l.rowIndex},'${l.nombre}',${l.pagoMonto})">↩ Reintegrar</button>`:''}</div></div>`).join('');
+}
+
+// ── CONSULTAS ──
+function cargarConsultas(){
+  consultasLoaded=true;
+  document.getElementById('consultas-list').innerHTML='<div class="loading"><div class="spinner"></div> Cargando consultas...</div>';
+  google.script.run
+    .withSuccessHandler(function(d){allConsultas=d.consultas||[];filtrarConsultas();})
+    .withFailureHandler(function(e){document.getElementById('consultas-list').innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">${e.message}</div></div>`;})
+    .obtenerConsultas();
+}
+function filtrarConsultas(){
+  const filtro=document.getElementById('consultas-filtro').value;
+  const items=filtro?allConsultas.filter(c=>c.respondida===filtro):allConsultas;
+  document.getElementById('consultas-count').textContent=items.length+' consulta'+(items.length!==1?'s':'');
+  renderConsultas(items);
+}
+function renderConsultas(items){
+  const c=document.getElementById('consultas-list');
+  if(!items||!items.length){c.innerHTML='<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">Sin consultas</div><div class="empty-sub">Cuando los alumnos escriban una consulta aparecerá acá.</div></div>';return;}
+  c.innerHTML=items.map(q=>`
+    <div class="consulta-card ${q.respondida==='si'?'respondida':''}">
+      <div style="flex:1">
+        <div class="consulta-nombre">${q.nombre||'Sin nombre'}</div>
+        <div class="consulta-wa">📱 ${q.whatsapp} &nbsp;·&nbsp; <a href="https://wa.me/${q.whatsapp}" target="_blank" class="wa-link">💬 WhatsApp</a></div>
+        <div class="consulta-texto">${q.consulta}</div>
+        <div class="consulta-fecha">${q.timestamp}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;flex-shrink:0">
+        ${q.respondida==='si'
+          ?'<span class="badge badge-enviado">✅ Respondida</span>'
+          :`<span class="badge badge-pendiente">⏳ Sin responder</span>
+            <button class="btn btn-primary btn-sm" onclick="marcarRespondida(${q.rowIndex})">✓ Marcar respondida</button>`}
+      </div>
+    </div>`).join('');
+}
+function marcarRespondida(rowIndex){
+  google.script.run
+    .withSuccessHandler(function(r){
+      if(r.ok){showToast('✅ Marcada como respondida');cargarConsultas();}
+      else showToast('❌ Error: '+r.error,true);
+    })
+    .withFailureHandler(function(e){showToast('❌ '+e.message,true);})
+    .marcarConsultaRespondida(rowIndex);
 }
 
 // ── MODAL ──
@@ -837,7 +895,7 @@ function confirmarEliminar(rowIndex,nombre){
   google.script.run.withSuccessHandler(function(r){if(r.ok){showToast('🗑 Ejercicio eliminado');cargarEjerciciosTab();cargarEjercicios();}else showToast('❌ Error: '+r.error,true);}).withFailureHandler(function(e){showToast('❌ '+e.message,true);}).eliminarEjercicio(rowIndex);
 }
 
-// ── MENSAJES con historial de chat ──
+// ── MENSAJES ──
 function cargarMensajes(){
   document.getElementById('mensajes-conv-list').innerHTML='<div class="loading" style="padding:20px"><div class="spinner"></div> Cargando...</div>';
   google.script.run
@@ -845,18 +903,15 @@ function cargarMensajes(){
     .withFailureHandler(function(e){document.getElementById('mensajes-conv-list').innerHTML=`<div style="padding:16px;color:var(--red);font-size:13px">Error: ${e.message}</div>`;})
     .obtenerConversacionesActivas();
 }
-
 function renderConversaciones(items){
   const c=document.getElementById('mensajes-conv-list');
   if(!items.length){c.innerHTML='<div style="padding:20px;color:var(--text-muted);font-size:13px;text-align:center">Sin conversaciones.</div>';return;}
   c.innerHTML=items.map(cv=>`<div class="mensajes-conv-item ${selectedConvWa===cv.whatsapp?'active':''}" onclick="seleccionarConversacion('${cv.whatsapp}','${(cv.nombre||cv.whatsapp).replace(/'/g,"\\'")}','${cv.paso}','${cv.ultimaActualizacion}')"><div class="mensajes-conv-nombre">${cv.nombre||cv.whatsapp}</div><div class="mensajes-conv-paso">📍 ${cv.paso}</div><div class="mensajes-conv-fecha">${cv.ultimaActualizacion}</div></div>`).join('');
 }
-
 function seleccionarConversacion(wa,nombre,paso,fecha){
   selectedConvWa=wa;
   renderConversaciones(allConversaciones);
   const panel=document.getElementById('mensajes-panel');
-  // Mostrar esqueleto con header y área de chat vacía mientras carga
   panel.innerHTML=`
     <div class="mensajes-panel-header">
       <div class="mensajes-panel-nombre">${nombre}</div>
@@ -873,8 +928,6 @@ function seleccionarConversacion(wa,nombre,paso,fecha){
       <textarea class="mensajes-textarea" id="msg-input-${wa}" placeholder="Escribí tu mensaje para ${nombre}..."></textarea>
       <button class="btn btn-whatsapp" onclick="enviarMensajePanel('${wa}','${nombre.replace(/'/g,"\\'")}')">💬 Enviar</button>
     </div>`;
-
-  // Cargar historial real desde ChatLog
   google.script.run
     .withSuccessHandler(function(d){
       const hist=document.getElementById('chat-historial-'+wa);
@@ -889,7 +942,6 @@ function seleccionarConversacion(wa,nombre,paso,fecha){
           :`<div class="chat-bubble">${m.contenido.replace(/\n/g,'<br>')}</div>`;
         return `<div class="chat-msg ${dir}">${burbuja}<div class="chat-ts">${m.timestamp}</div></div>`;
       }).join('');
-      // Scroll al fondo
       hist.scrollTop=hist.scrollHeight;
     })
     .withFailureHandler(function(){
@@ -898,7 +950,6 @@ function seleccionarConversacion(wa,nombre,paso,fecha){
     })
     .obtenerChatLogPorWhatsapp(wa);
 }
-
 function enviarMensajePanel(wa,nombre){
   const input=document.getElementById('msg-input-'+wa);
   const msg=(input?input.value||'':'').trim();
@@ -909,12 +960,8 @@ function enviarMensajePanel(wa,nombre){
   google.script.run
     .withSuccessHandler(function(r){
       if(btn){btn.disabled=false;btn.textContent='💬 Enviar';}
-      if(r.ok){
-        showToast('✅ Mensaje enviado a '+nombre);
-        if(input)input.value='';
-        // Refrescar historial
-        seleccionarConversacion(wa,nombre,'—','—');
-      }else showToast('❌ Error: '+r.error,true);
+      if(r.ok){showToast('✅ Mensaje enviado a '+nombre);if(input)input.value='';seleccionarConversacion(wa,nombre,'—','—');}
+      else showToast('❌ Error: '+r.error,true);
     })
     .withFailureHandler(function(e){if(btn){btn.disabled=false;btn.textContent='💬 Enviar';}showToast('❌ Error: '+e.message,true);})
     .enviarMensajeDesdePanel(wa,msg);
