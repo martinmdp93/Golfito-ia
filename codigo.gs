@@ -232,7 +232,7 @@ function procesarMensajeEntrante(from, text) {
           guardarConversacion(from, { ...conv, paso: "esperando_video_plan_1", ejvsplan: "3", nombre, video_url1: "", video_url2: "" });
         }
       } else if (v === "4") {
-        enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s actualizar?\n\n1\ufe0f\u20e3 Mi handicap\n2\ufe0f\u20e3 El aspecto que quiero trabajar");
+        enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s actualizar?\n\n1\ufe0f\u20e3 Mi nombre\n2\ufe0f\u20e3 Mi handicap");
         guardarConversacion(from, { ...conv, paso: "esperando_actualizar_datos" });
       } else if (v === "5") {
         enviarMensajeWhatsApp(from, "\u00a1Claro! Escrib\u00ed tu consulta o comentario y te respondemos a la brevedad \ud83d\udcdd");
@@ -294,22 +294,29 @@ function procesarMensajeEntrante(from, text) {
     }
 
     if (paso === "esperando_actualizar_datos") {
-      if (text === "1") { enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu handicap actual?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_"); guardarConversacion(from, { ...conv, paso: "actualizando_handicap" }); }
-      else if (text === "2") { enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 aspecto quer\u00e9s trabajar?\n\n1\ufe0f\u20e3 Driver\n2\ufe0f\u20e3 Hierros\n3\ufe0f\u20e3 Approach\n4\ufe0f\u20e3 Putting\n5\ufe0f\u20e3 Bunker\n6\ufe0f\u20e3 Primera vez en el golf"); guardarConversacion(from, { ...conv, paso: "actualizando_aspecto" }); }
-      else { enviarMensajeWhatsApp(from, "Respond\u00e9 1 para handicap o 2 para aspecto."); }
+      if (text === "1") {
+        enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu nombre?");
+        guardarConversacion(from, { ...conv, paso: "actualizando_nombre" });
+      } else if (text === "2") {
+        enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu handicap actual?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
+        guardarConversacion(from, { ...conv, paso: "actualizando_handicap" });
+      } else {
+        enviarMensajeWhatsApp(from, "Respond\u00e9 1 para nombre o 2 para handicap.");
+      }
       return;
+    }
+    if (paso === "actualizando_nombre") {
+      const nombre = sanitizarNombre(text);
+      const ss = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
+      if (ss) { const data = ss.getDataRange().getValues(); for (let i=1;i<data.length;i++) { if (safeString(data[i][0])===from) { ss.getRange(i+1,2).setValue(nombre); break; } } }
+      enviarMensajeWhatsApp(from, "\u2705 Nombre actualizado a *" + nombre + "*.\n\nCualquier otra consulta escribinos \u26f3");
+      enviarMenuPrincipal(from, nombre); guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre }); return;
     }
     if (paso === "actualizando_handicap") {
       actualizarHandicapLead(from, text);
       const nombre = conv.nombre || obtenerNombreLead(from);
       enviarMensajeWhatsApp(from, "\u2705 Handicap actualizado a *" + text + "*.\n\nCualquier otra consulta escribinos \u26f3");
       enviarMenuPrincipal(from, nombre); guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", handicap: text }); return;
-    }
-    if (paso === "actualizando_aspecto") {
-      const aspecto = mapAspectoLead(text);
-      const nombre = conv.nombre || obtenerNombreLead(from);
-      enviarMensajeWhatsApp(from, "\u2705 Aspecto actualizado a *" + aspecto + "*.\n\nCualquier otra consulta escribinos \u26f3");
-      enviarMenuPrincipal(from, nombre); guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", aspecto: text }); return;
     }
     if (paso === "esperando_consulta") {
       guardarConsulta(from, conv.nombre || obtenerNombreLead(from), text);
