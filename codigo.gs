@@ -19,6 +19,9 @@ const VERIFY_TOKEN = "golfito_verify_123";
 const MODO_TEST_ANALISIS = PropertiesService.getScriptProperties().getProperty("MODO_TEST_ANALISIS") === "true";
 const MODO_TEST_PLAN = PropertiesService.getScriptProperties().getProperty("MODO_TEST_PLAN") === "true";
 
+const COSTO_ANALISIS = 5000;
+const COSTO_PLAN = 15000;
+
 const ENTRADA_CALOR_STD = "Empeza con 5 minutos de movilidad articular (hombros, caderas y munecas). Tira 10-15 chips cortos para activar el tacto. Luego hace 5-8 swings completos a medio ritmo antes de arrancar con los ejercicios.";
 const CONSIDERACIONES_STD = "Animo! Intenta este plan en 2 a 4 sesiones de entrenamiento y comentanos tus avances o cualquier duda adicional. Recorda siempre tirar algunas bolas de forma natural y sin pensamientos tecnicos antes de dejar el driving, y evita pensamientos complejos al competir.";
 
@@ -37,6 +40,11 @@ const COL = {
   COMENTARIOS_ALUMNO: 36, ANALISIS_MANUAL_1: 37, ANALISIS_MANUAL_2: 38,
   FEEDBACK_SCORE: 39, MP_PAYMENT_ID: 40
 };
+
+// Columnas Leads: whatsapp(1), nombre(2), fecha_registro(3), handicap(4), notas(5), saldo(6)
+const LEADS_COL_SALDO = 6;
+const INDICE_SHEET = "IndiceGolfito";
+const INDICE_HEADERS = ["timestamp","whatsapp","score_total","grip","postura","backswing","downswing","impacto","follow_through","transferencia_peso","video_url"];
 
 const SESIONES_HEADERS = [
   "timestamp","whatsapp","aspecto","nivel","ejvsplan",
@@ -128,6 +136,55 @@ function validarTokenPanel(token) {
 }
 
 // ============================================
+// WALLET — SALDO
+// ============================================
+function obtenerSaldoLead(from) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
+  if (!sheet) return 0;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (safeString(data[i][0]) === from) {
+      const saldo = parseFloat(data[i][LEADS_COL_SALDO - 1]) || 0;
+      return saldo;
+    }
+  }
+  return 0;
+}
+
+function debitarSaldoLead(from, monto) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
+  if (!sheet) return false;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (safeString(data[i][0]) === from) {
+      const saldoActual = parseFloat(data[i][LEADS_COL_SALDO - 1]) || 0;
+      if (saldoActual < monto) return false;
+      sheet.getRange(i + 1, LEADS_COL_SALDO).setValue(saldoActual - monto);
+      return true;
+    }
+  }
+  return false;
+}
+
+function acreditarSaldoLead(from, monto) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
+  if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (safeString(data[i][0]) === from) {
+      const saldoActual = parseFloat(data[i][LEADS_COL_SALDO - 1]) || 0;
+      sheet.getRange(i + 1, LEADS_COL_SALDO).setValue(saldoActual + monto);
+      Logger.log("Saldo acreditado: " + from + " + $" + monto + " = $" + (saldoActual + monto));
+      return;
+    }
+  }
+}
+
+function formatearSaldo(monto) {
+  return "$ " + Number(monto).toLocaleString("es-CL");
+}
+
+// ============================================
 // HELPERS DE CONVERSACION
 // ============================================
 function esUsuarioConocido(from) {
@@ -156,14 +213,20 @@ function obtenerHandicapLead(from) {
 // MENU PRINCIPAL
 // ============================================
 function enviarMenuPrincipal(from, nombre) {
+  const saldo = obtenerSaldoLead(from);
+  const saldoStr = formatearSaldo(saldo);
   enviarMensajeWhatsApp(from,
-    "\u00a1Hola de nuevo *" + nombre + "*! \u26f3 \u00bfCon qu\u00e9 te puedo ayudar?\n\n" +
+    "\u00a1Hola de nuevo *" + nombre + "*! \u26f3\n" +
+    "\uD83D\uDCB0 *Saldo disponible: " + saldoStr + " CLP*\n\n" +
+    "\u00bfCon qu\u00e9 te puedo ayudar?\n\n" +
     "1\ufe0f\u20e3 *Ejercicio gratis*\n" +
     "2\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 5.000\n" +
     "3\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000\n" +
-    "4\ufe0f\u20e3 *Actualizar mis datos*\n" +
-    "5\ufe0f\u20e3 *Otras consultas*\n" +
-    "6\ufe0f\u20e3 *Validar mi pago*"
+    "4\ufe0f\u20e3 *Sugerir equipamiento* \uD83D\uDEA7\n" +
+    "5\ufe0f\u20e3 *Actualizar mis datos*\n" +
+    "6\ufe0f\u20e3 *Otras consultas*\n" +
+    "7\ufe0f\u20e3 *Cargar saldo*\n" +
+    "8\ufe0f\u20e3 *\u00cdndice Golfito* \u2014 evalu\u00e1 tu swing \uD83D\uDCCA"
   );
 }
 
@@ -188,6 +251,89 @@ function procesarMensajeEntrante(from, text) {
         guardarConversacion(from, { paso: "esperando_nombre", nombre: "", handicap: "", aspecto: "", ejvsplan: "", video_url1: "", video_url2: "" });
       }
       return;
+    }
+
+    // ── Verificación automática de pago pendiente ──
+    if ((paso === "esperando_pago_analisis" || paso === "esperando_pago_plan" || paso === "esperando_pago_recarga") && text !== "menu") {
+      const nombre = conv.nombre || obtenerNombreLead(from);
+
+      if (paso === "esperando_pago_recarga") {
+        enviarMensajeWhatsApp(from, "\u23f3 Verificando tu recarga...");
+        const externalRef = conv.mp_external_ref || "";
+        const verificacion = verificarPagoAprobado(externalRef);
+        if (verificacion.ok) {
+          const montoRecarga = verificacion.monto || conv.monto_recarga || 0;
+          acreditarSaldoLead(from, montoRecarga);
+          try {
+            const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
+            if (sh) {
+              const d = sh.getDataRange().getValues();
+              for (let i = d.length - 1; i >= 1; i--) {
+                if (safeString(d[i][COL.WHATSAPP-1]) === from && safeString(d[i][COL.PAGO_STATUS-1]) === "pendiente_recarga") {
+                  sh.getRange(i+1, COL.PAGO_STATUS).setValue("pagado");
+                  sh.getRange(i+1, COL.PAGO_FECHA).setValue(new Date());
+                  sh.getRange(i+1, COL.MP_PAYMENT_ID).setValue(String(verificacion.paymentId));
+                  break;
+                }
+              }
+            }
+          } catch(se) { Logger.log("Error guardando recarga: " + se); }
+          const nuevoSaldo = obtenerSaldoLead(from);
+          enviarMensajeWhatsApp(from, "\u2705 Recarga confirmada " + nombre + ".\n\uD83D\uDCB0 *Saldo actual: " + formatearSaldo(nuevoSaldo) + " CLP*");
+          guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+          enviarMenuPrincipal(from, nombre);
+        } else {
+          enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo la recarga confirmada " + nombre + ". Esper\u00e1 unos minutos e intent\u00e1 de nuevo \u26f3");
+          enviarMenuPrincipal(from, nombre);
+          guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+        }
+        return;
+      }
+
+      if (paso === "esperando_pago_analisis") {
+        enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
+        const externalRef = conv.mp_external_ref || conv.mp_codigo_plan || "";
+        const verificacion = verificarPagoAprobado(externalRef);
+        if (verificacion.ok) {
+          try {
+            const sh2 = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
+            if (sh2) {
+              const d2 = sh2.getDataRange().getValues();
+              for (let i2 = d2.length-1; i2 >= 1; i2--) {
+                if (safeString(d2[i2][COL.WHATSAPP-1]) === from && safeString(d2[i2][COL.PAGO_STATUS-1]) !== "pagado") {
+                  sh2.getRange(i2+1,COL.PAGO_STATUS).setValue("pagado"); sh2.getRange(i2+1,COL.PAGO_FECHA).setValue(new Date()); sh2.getRange(i2+1,COL.MP_PAYMENT_ID).setValue(String(verificacion.paymentId)); break;
+                }
+              }
+            }
+          } catch(se) { Logger.log("Error guardando pago: " + se); }
+          enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombre + ". Analizando tu swing con IA, dame un momento...");
+          const datosAnal = { ...conv, paso: "analizando_video" }; guardarConversacion(from, datosAnal); procesarAnalisisVideo(from, datosAnal, false);
+        } else {
+          enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo el pago confirmado " + nombre + ". Esper\u00e1 unos minutos e intent\u00e1 de nuevo \u26f3");
+          guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); enviarMenuPrincipal(from, nombre);
+        }
+        return;
+      }
+
+      if (paso === "esperando_pago_plan") {
+        const nombrePlan = conv.nombre || obtenerNombreLead(from);
+        enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
+        const vPlan = verificarPagoAprobado(conv.mp_codigo_plan || "");
+        if (vPlan.ok) {
+          try {
+            const sh3 = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
+            if (sh3) { const d3 = sh3.getDataRange().getValues(); for (let i3=d3.length-1;i3>=1;i3--) { if (safeString(d3[i3][COL.WHATSAPP-1])===from && safeString(d3[i3][COL.PAGO_STATUS-1])!=="pagado") { sh3.getRange(i3+1,COL.PAGO_STATUS).setValue("pagado"); sh3.getRange(i3+1,COL.PAGO_FECHA).setValue(new Date()); sh3.getRange(i3+1,COL.MP_PAYMENT_ID).setValue(String(vPlan.paymentId)); sh3.getRange(i3+1,COL.STATUS).setValue("pendiente_manual"); break; } } }
+          } catch(se2) { Logger.log("Error guardando pago plan: " + se2); }
+          enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombrePlan + " \u26f3 Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1.");
+          guardarConversacion(from, { ...conv, paso: "completo" });
+          const perfil = { nivel: mapNivel(conv.handicap||"", mapAspectoLead(conv.aspecto||"")), aspecto: mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
+          notificarNuevoPlan(nombrePlan, from, perfil, conv.video_url1||"", conv.comentarios_alumno||"");
+        } else {
+          enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo el pago confirmado " + nombrePlan + ". Esper\u00e1 unos minutos e intent\u00e1 de nuevo \u26f3");
+          guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); enviarMenuPrincipal(from, nombrePlan);
+        }
+        return;
+      }
     }
 
     if (paso === "completo" || paso === "plan_solicitado" || paso === "esperando_menu_principal") {
@@ -231,55 +377,49 @@ function procesarMensajeEntrante(from, text) {
           guardarConversacion(from, { ...conv, paso: "esperando_video_plan_1", ejvsplan: "3", nombre, video_url1: "", video_url2: "" });
         }
       } else if (v === "4") {
+        enviarMensajeWhatsApp(from,
+          "\uD83C\uDFCC\uFE0F *Equipamiento para entrenar* \uD83D\uDEA7\n\n" +
+          "Esta sección está en construcción. Próximamente te vamos a compartir recomendaciones de equipamiento para mejorar tu entrenamiento.\n\n" +
+          "Cualquier consulta escribinos \u26f3"
+        );
+        guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+        enviarMenuPrincipal(from, nombre);
+      } else if (v === "5") {
         enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s actualizar?\n\n1\ufe0f\u20e3 Mi nombre\n2\ufe0f\u20e3 Mi handicap");
         guardarConversacion(from, { ...conv, paso: "esperando_actualizar_datos" });
-      } else if (v === "5") {
+      } else if (v === "6") {
         enviarMensajeWhatsApp(from, "\u00a1Claro! Escrib\u00ed tu consulta o comentario y te respondemos a la brevedad \ud83d\udcdd");
         guardarConversacion(from, { ...conv, paso: "esperando_consulta" });
-      } else if (v === "6") {
-        enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
-        const externalRef = conv.mp_external_ref || conv.mp_codigo_plan || "";
-        if (!externalRef) {
-          enviarMensajeWhatsApp(from, "No encontramos ning\u00fan pago pendiente asociado a tu cuenta \u26f3");
-          enviarMenuPrincipal(from, nombre); return;
-        }
-        const verificacion = verificarPagoAprobado(externalRef);
-        if (verificacion.ok) {
-          try {
-            const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
-            if (sh) {
-              const d = sh.getDataRange().getValues();
-              for (let i = d.length - 1; i >= 1; i--) {
-                if (safeString(d[i][COL.WHATSAPP-1]) === from && safeString(d[i][COL.PAGO_STATUS-1]) !== "pagado") {
-                  sh.getRange(i+1, COL.PAGO_STATUS).setValue("pagado");
-                  sh.getRange(i+1, COL.PAGO_FECHA).setValue(new Date());
-                  sh.getRange(i+1, COL.MP_PAYMENT_ID).setValue(String(verificacion.paymentId));
-                  if (safeString(d[i][COL.EJVSPLAN-1]) === "3") sh.getRange(i+1, COL.STATUS).setValue("pendiente_manual");
-                  break;
-                }
-              }
-            }
-          } catch(se) { Logger.log("Error validando pago manual: " + se); }
-          const ejvsplan = conv.ejvsplan || "";
-          if (ejvsplan === "2") {
-            enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombre + ". Analizando tu swing con IA, dame un momento...");
-            const datosAnal = { ...conv, paso: "analizando_video" };
-            guardarConversacion(from, datosAnal); procesarAnalisisVideo(from, datosAnal, false);
-          } else if (ejvsplan === "3") {
-            enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombre + " \u26f3 Estamos preparando tu plan y te lo enviamos pronto por ac\u00e1.");
-            const perfil = { nivel: mapNivel(conv.handicap||"", mapAspectoLead(conv.aspecto||"")), aspecto: mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
-            notificarNuevoPlan(nombre, from, perfil, conv.video_url1||"", conv.comentarios_alumno||"");
-            guardarConversacion(from, { ...conv, paso: "completo" });
-          } else {
-            enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombre + " \u26f3");
-            guardarConversacion(from, { ...conv, paso: "completo" }); enviarMenuPrincipal(from, nombre);
-          }
-        } else {
-          enviarMensajeWhatsApp(from, "No encontramos un pago aprobado todav\u00eda. Si ya pagaste, esper\u00e1 unos minutos e intent\u00e1 de nuevo \u26f3");
-          enviarMenuPrincipal(from, nombre);
-        }
+      } else if (v === "7") {
+        enviarMensajeWhatsApp(from, "\uD83D\uDCB0 *Cargar saldo*\n\n\u00bfCu\u00e1nto quer\u00e9s cargar a tu billetera Golfito? Escrib\u00ed el monto en pesos chilenos (solo el n\u00famero, sin puntos ni s\u00edmbolos).\n\nEj: *10000*");
+        guardarConversacion(from, { ...conv, paso: "esperando_monto_recarga" });
+      } else if (v === "8") {
+        enviarMensajeWhatsApp(from, "\uD83D\uDCCA *\u00cdndice Golfito*\n\nEnviam\u00e9 un video de tu swing _(menos de 7 segundos)_ y evaluo tus 7 dimensiones t\u00e9cnicas con un score del 1 al 100 \uD83C\uDFCC\uFE0F");
+        guardarConversacion(from, { ...conv, paso: "esperando_video_indice", ejvsplan: "indice", nombre, video_url1: "" });
       } else {
         enviarMenuPrincipal(from, nombre);
+      }
+      return;
+    }
+
+    if (paso === "esperando_monto_recarga") {
+      const nombre = conv.nombre || obtenerNombreLead(from);
+      const montoStr = text.replace(/\./g,"").replace(/,/g,"").trim();
+      const monto = parseInt(montoStr, 10);
+      if (isNaN(monto) || monto < 1000) {
+        enviarMensajeWhatsApp(from, "El monto m\u00ednimo es $1.000. Ingres\u00e1 un n\u00famero v\u00e1lido:");
+        return;
+      }
+      const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
+      const mpRes = crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, monto);
+      if (mpRes.ok) {
+        enviarMensajeWhatsApp(from, "Perfecto \u26f3 Para cargar *" + formatearSaldo(monto) + " CLP* a tu billetera, realiz\u00e1 el pago ac\u00e1:\n" + mpRes.link + "\n\nUna vez que pagues, escribinos ac\u00e1 y acreditamos el saldo \uD83D\uDCB0");
+        guardarConversacion(from, { ...conv, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: monto });
+        registrarSesionRecarga(from, conv, monto, mpRes.externalRef);
+      } else {
+        enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
+        enviarMenuPrincipal(from, nombre);
+        guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
       }
       return;
     }
@@ -340,33 +480,34 @@ function procesarMensajeEntrante(from, text) {
       else if (tipo === "plan_personalizado") { enviarMensajeWhatsApp(from, "Perfecto \u26f3 Enviame un video de tu swing \ud83c\udfa5 _(menos de 7 segundos)_\n\n_(Si no ten\u00e9s uno a mano, cualquier otra consulta escribinos \u26f3)_"); guardarConversacion(from, { ...conv, paso: "esperando_video_plan", ejvsplan: "3" }); }
       return;
     }
+    if (paso === "esperando_video_indice") { enviarMensajeWhatsApp(from, "Para enviar el video us\u00e1 el clip \ud83d\udcce de WhatsApp _(menos de 7 segundos)_."); return; }
+
     if (paso === "esperando_video_analisis") { enviarMensajeWhatsApp(from, "Para enviar el video us\u00e1 el clip \ud83d\udcce de WhatsApp."); return; }
 
-    if (paso === "esperando_pago_analisis") {
+    // ── Contexto pre-análisis (opcional) ──
+    if (paso === "esperando_contexto_video") {
       const nombre = conv.nombre || obtenerNombreLead(from);
-      enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
-      const externalRef = conv.mp_external_ref || conv.mp_codigo_plan || "";
-      const verificacion = verificarPagoAprobado(externalRef);
-      if (verificacion.ok) {
-        try {
-          const sh2 = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
-          if (sh2) {
-            const d2 = sh2.getDataRange().getValues();
-            for (let i2 = d2.length-1; i2 >= 1; i2--) {
-              if (safeString(d2[i2][COL.WHATSAPP-1]) === from && safeString(d2[i2][COL.PAGO_STATUS-1]) !== "pagado") {
-                sh2.getRange(i2+1,COL.PAGO_STATUS).setValue("pagado"); sh2.getRange(i2+1,COL.PAGO_FECHA).setValue(new Date()); sh2.getRange(i2+1,COL.MP_PAYMENT_ID).setValue(String(verificacion.paymentId)); break;
-              }
-            }
-          }
-        } catch(se) { Logger.log("Error guardando pago: " + se); }
-        enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombre + ". Analizando tu swing con IA, dame un momento...");
-        const datosAnal = { ...conv, paso: "analizando_video" }; guardarConversacion(from, datosAnal); procesarAnalisisVideo(from, datosAnal, false);
-      } else if (verificacion.motivo === "no_encontrado" || verificacion.motivo === "pending" || verificacion.motivo === "in_process") {
-        enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo el pago confirmado " + nombre + ". Esper\u00e1 unos minutos y us\u00e1 la opci\u00f3n *6 \u2014 Validar mi pago* del men\u00fa \u26f3");
-        guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); enviarMenuPrincipal(from, nombre);
+      const contexto = (textLower === "omitir" || textLower === "saltar" || text.trim() === "") ? "" : text.trim();
+      const datosConContexto = { ...conv, paso: "analizando_video", contexto_analisis: contexto };
+      guardarConversacion(from, datosConContexto);
+      if (MODO_TEST_ANALISIS) {
+        enviarMensajeWhatsApp(from, "\u23f3 Recib\u00ed tu video " + nombre + ". Analizando tu swing con IA, dame un momento...");
+        procesarAnalisisVideo(from, datosConContexto, false);
       } else {
-        enviarMensajeWhatsApp(from, "No encontramos un pago aprobado. Si ya pagaste, esper\u00e1 unos minutos y us\u00e1 la opci\u00f3n *6 \u2014 Validar mi pago* del men\u00fa \u26f3");
-        guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); enviarMenuPrincipal(from, nombre);
+        // Chequear saldo
+        const saldo = obtenerSaldoLead(from);
+        if (saldo >= COSTO_ANALISIS) {
+          const debitado = debitarSaldoLead(from, COSTO_ANALISIS);
+          if (debitado) {
+            actualizarPagoSesionWallet(from, COSTO_ANALISIS);
+            enviarMensajeWhatsApp(from, "\u2705 Se debitaron *" + formatearSaldo(COSTO_ANALISIS) + " CLP* de tu saldo.\n\n\u23f3 Analizando tu swing con IA, dame un momento...");
+            procesarAnalisisVideo(from, datosConContexto, false);
+          } else {
+            ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto);
+          }
+        } else {
+          ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto);
+        }
       }
       return;
     }
@@ -408,17 +549,22 @@ function procesarMensajeEntrante(from, text) {
         notificarNuevoPlan(nombre, from, perfil, conv.video_url1||"", comentarios);
         enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Estamos preparando tu plan y te lo enviamos pronto por ac\u00e1.");
       } else {
-        const codigoPlan = generarCodigoPlan();
-        const mpRes = crearPreferenciaPago(from, nombre, "plan", codigoPlan);
-        if (mpRes.ok) {
-          enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Para confirmar tu plan, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + mpRes.link + "\n\nUna vez confirmado el pago te avisamos y empezamos con tu plan \ud83c\udfcc\ufe0f");
-          const datosConPago = { ...conv, paso: "esperando_pago_plan", comentarios_alumno: comentarios, mp_codigo_plan: codigoPlan };
-          guardarConversacion(from, datosConPago);
-          registrarSesion(from, { ...datosConPago, ejvsplan: "3" });
+        // Chequear saldo para plan
+        const saldo = obtenerSaldoLead(from);
+        if (saldo >= COSTO_PLAN) {
+          const debitado = debitarSaldoLead(from, COSTO_PLAN);
+          if (debitado) {
+            const datos = { ...conv, paso: "completo", comentarios_alumno: comentarios };
+            guardarConversacion(from, datos);
+            registrarSesion(from, { ...datos, ejvsplan: "3", pago_wallet: true });
+            const perfil = { nivel: mapNivel(conv.handicap||"", mapAspectoLead(conv.aspecto||"")), aspecto: mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
+            notificarNuevoPlan(nombre, from, perfil, conv.video_url1||"", comentarios);
+            enviarMensajeWhatsApp(from, "\u2705 Se debitaron *" + formatearSaldo(COSTO_PLAN) + " CLP* de tu saldo.\n\nPerfecto " + nombre + " \u26f3 Estamos preparando tu plan y te lo enviamos pronto por ac\u00e1.");
+          } else {
+            ofrecerRecargaPlan(from, nombre, conv, comentarios);
+          }
         } else {
-          Logger.log("MP fallo: " + (mpRes.error||""));
-          const datos = { ...conv, paso: "completo", comentarios_alumno: comentarios };
-          guardarConversacion(from, datos); registrarSesion(from, datos);
+          ofrecerRecargaPlan(from, nombre, conv, comentarios);
         }
       }
       return;
@@ -427,31 +573,21 @@ function procesarMensajeEntrante(from, text) {
     if (paso === "esperando_video_plan") {
       if (textLower === "saltar") {
         if (MODO_TEST_PLAN) { enviarMensajeWhatsApp(from, "Ok \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_"); guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: "" }); }
-        else { const cod = safeString(obtenerCodigoPlanPendiente(from)) || generarCodigoPlan(); const mpR = crearPreferenciaPago(from, conv.nombre||obtenerNombreLead(from), "plan", cod); const lnk = mpR.ok ? mpR.link : "https://mpago.la/TU-LINK-PLAN"; enviarMensajeWhatsApp(from, "Para continuar, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + lnk + "\n\nCualquier otra consulta escribinos \u26f3"); guardarConversacion(from, { ...conv, paso: "esperando_pago_plan", mp_codigo_plan: cod }); }
+        else {
+          const nombre = conv.nombre || obtenerNombreLead(from);
+          const saldo = obtenerSaldoLead(from);
+          if (saldo >= COSTO_PLAN) {
+            enviarMensajeWhatsApp(from, "Ok \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
+            guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: "" });
+          } else {
+            const cod = safeString(obtenerCodigoPlanPendiente(from)) || generarCodigoPlan();
+            const mpR = crearPreferenciaPago(from, nombre, "plan", cod, COSTO_PLAN);
+            const lnk = mpR.ok ? mpR.link : "https://mpago.la/TU-LINK-PLAN";
+            enviarMensajeWhatsApp(from, "Para continuar, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + lnk + "\n\nCualquier otra consulta escribinos \u26f3");
+            guardarConversacion(from, { ...conv, paso: "esperando_pago_plan", mp_codigo_plan: cod });
+          }
+        }
       } else { enviarMensajeWhatsApp(from, "Para enviar el video us\u00e1 el clip \ud83d\udcce de WhatsApp _(menos de 7 segundos)_, o cualquier otra consulta escribinos \u26f3"); }
-      return;
-    }
-
-    if (paso === "esperando_pago_plan") {
-      const nombrePlan = conv.nombre || obtenerNombreLead(from);
-      enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
-      const vPlan = verificarPagoAprobado(conv.mp_codigo_plan || "");
-      if (vPlan.ok) {
-        try {
-          const sh3 = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
-          if (sh3) { const d3 = sh3.getDataRange().getValues(); for (let i3=d3.length-1;i3>=1;i3--) { if (safeString(d3[i3][COL.WHATSAPP-1])===from && safeString(d3[i3][COL.PAGO_STATUS-1])!=="pagado") { sh3.getRange(i3+1,COL.PAGO_STATUS).setValue("pagado"); sh3.getRange(i3+1,COL.PAGO_FECHA).setValue(new Date()); sh3.getRange(i3+1,COL.MP_PAYMENT_ID).setValue(String(vPlan.paymentId)); sh3.getRange(i3+1,COL.STATUS).setValue("pendiente_manual"); break; } } }
-        } catch(se2) { Logger.log("Error guardando pago plan: " + se2); }
-        enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombrePlan + " \u26f3 Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1.");
-        guardarConversacion(from, { ...conv, paso: "completo" });
-        const perfil = { nivel: mapNivel(conv.handicap||"", mapAspectoLead(conv.aspecto||"")), aspecto: mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
-        notificarNuevoPlan(nombrePlan, from, perfil, conv.video_url1||"", conv.comentarios_alumno||"");
-      } else if (vPlan.motivo === "no_encontrado" || vPlan.motivo === "pending" || vPlan.motivo === "in_process") {
-        enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo el pago confirmado " + nombrePlan + ". Esper\u00e1 unos minutos y us\u00e1 la opci\u00f3n *6 \u2014 Validar mi pago* del men\u00fa \u26f3");
-        guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); enviarMenuPrincipal(from, nombrePlan);
-      } else {
-        enviarMensajeWhatsApp(from, "No encontramos un pago aprobado. Si ya pagaste, esper\u00e1 unos minutos y us\u00e1 la opci\u00f3n *6 \u2014 Validar mi pago* del men\u00fa \u26f3");
-        guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); enviarMenuPrincipal(from, nombrePlan);
-      }
       return;
     }
 
@@ -480,6 +616,102 @@ function procesarMensajeEntrante(from, text) {
 }
 
 // ============================================
+// HELPERS WALLET — OFRECER RECARGA
+// ============================================
+function ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto) {
+  const saldo = obtenerSaldoLead(from);
+  const falta = COSTO_ANALISIS - saldo;
+  const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
+  const mpRes = crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, falta);
+  if (mpRes.ok) {
+    enviarMensajeWhatsApp(from,
+      "\uD83D\uDCB0 Tu saldo actual es *" + formatearSaldo(saldo) + " CLP*.\n\n" +
+      "Para analizar tu swing necesit\u00e1s *" + formatearSaldo(COSTO_ANALISIS) + " CLP*.\n\n" +
+      "Recarg\u00e1 *" + formatearSaldo(falta) + " CLP* ac\u00e1 para continuar:\n" + mpRes.link + "\n\n" +
+      "Una vez que pagues, escribinos ac\u00e1 \u26f3"
+    );
+    guardarConversacion(from, { ...datosConContexto, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: falta, post_recarga: "analisis" });
+    registrarSesionRecarga(from, conv, falta, mpRes.externalRef);
+  } else {
+    // Fallback: link MP directo por el análisis
+    const codigoAnal = "ANAL-" + String(Date.now()).slice(-6);
+    const mpResAnal = crearPreferenciaPago(from, nombre, "analisis", codigoAnal, COSTO_ANALISIS);
+    if (mpResAnal.ok) {
+      enviarMensajeWhatsApp(from, "Para analizar tu swing realiz\u00e1 el pago de *$ 5.000* ac\u00e1:\n" + mpResAnal.link + "\n\nUna vez que pagues, escribinos ac\u00e1 \u26f3");
+      guardarConversacion(from, { ...datosConContexto, paso: "esperando_pago_analisis", mp_external_ref: mpResAnal.externalRef || codigoAnal });
+    } else {
+      enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
+      const nombre2 = conv.nombre || obtenerNombreLead(from);
+      enviarMenuPrincipal(from, nombre2);
+      guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+    }
+  }
+}
+
+function ofrecerRecargaPlan(from, nombre, conv, comentarios) {
+  const saldo = obtenerSaldoLead(from);
+  const falta = COSTO_PLAN - saldo;
+  const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
+  const mpRes = crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, falta);
+  if (mpRes.ok) {
+    enviarMensajeWhatsApp(from,
+      "\uD83D\uDCB0 Tu saldo actual es *" + formatearSaldo(saldo) + " CLP*.\n\n" +
+      "Para tu plan personalizado necesit\u00e1s *" + formatearSaldo(COSTO_PLAN) + " CLP*.\n\n" +
+      "Recarg\u00e1 *" + formatearSaldo(falta) + " CLP* ac\u00e1 para continuar:\n" + mpRes.link + "\n\n" +
+      "Una vez que pagues, escribinos ac\u00e1 \u26f3"
+    );
+    guardarConversacion(from, { ...conv, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: falta, comentarios_alumno: comentarios, post_recarga: "plan" });
+    registrarSesionRecarga(from, conv, falta, mpRes.externalRef);
+  } else {
+    const codigoPlan = generarCodigoPlan();
+    const mpResPlan = crearPreferenciaPago(from, nombre, "plan", codigoPlan, COSTO_PLAN);
+    if (mpResPlan.ok) {
+      enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Para confirmar tu plan, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + mpResPlan.link + "\n\nUna vez confirmado el pago te avisamos y empezamos \ud83c\udfcc\ufe0f");
+      const datosConPago = { ...conv, paso: "esperando_pago_plan", comentarios_alumno: comentarios, mp_codigo_plan: codigoPlan };
+      guardarConversacion(from, datosConPago);
+      registrarSesion(from, { ...datosConPago, ejvsplan: "3" });
+    } else {
+      enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
+      enviarMenuPrincipal(from, nombre);
+      guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+    }
+  }
+}
+
+function actualizarPagoSesionWallet(from, monto) {
+  try {
+    const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
+    if (!sh) return;
+    const d = sh.getDataRange().getValues();
+    for (let i = d.length - 1; i >= 1; i--) {
+      if (safeString(d[i][COL.WHATSAPP-1]) === from && safeString(d[i][COL.PAGO_STATUS-1]) !== "pagado") {
+        sh.getRange(i+1, COL.PAGO_STATUS).setValue("pagado");
+        sh.getRange(i+1, COL.PAGO_FECHA).setValue(new Date());
+        sh.getRange(i+1, COL.PAGO_MONTO).setValue(monto);
+        return;
+      }
+    }
+  } catch(err) { Logger.log("Error actualizarPagoSesionWallet: " + err); }
+}
+
+function registrarSesionRecarga(from, conv, monto, externalRef) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(SESIONES_SHEET);
+    if (!sheet) { sheet = ss.insertSheet(SESIONES_SHEET); sheet.appendRow(SESIONES_HEADERS); }
+    const row = new Array(SESIONES_HEADERS.length).fill("");
+    row[COL.TIMESTAMP-1] = new Date();
+    row[COL.WHATSAPP-1] = from;
+    row[COL.EJVSPLAN-1] = "recarga";
+    row[COL.STATUS-1] = "recarga";
+    row[COL.PAGO_STATUS-1] = "pendiente_recarga";
+    row[COL.PAGO_MONTO-1] = monto;
+    row[COL.CODIGO_PLAN-1] = externalRef;
+    sheet.appendRow(row);
+  } catch(err) { Logger.log("Error registrarSesionRecarga: " + err); }
+}
+
+// ============================================
 // PROCESAR VIDEO ENTRANTE
 // ============================================
 function procesarVideoEntrante(from, mediaId) {
@@ -488,7 +720,7 @@ function procesarVideoEntrante(from, mediaId) {
   try {
     const conv = obtenerConversacion(from);
     const paso = conv.paso || "";
-    const pasosValidos = ["esperando_video_analisis","esperando_video_plan","esperando_video_plan_1","esperando_video_plan_2","esperando_video_plan_complementario"];
+    const pasosValidos = ["esperando_video_analisis","esperando_video_indice","esperando_video_plan","esperando_video_plan_1","esperando_video_plan_2","esperando_video_plan_complementario"];
     if (!pasosValidos.includes(paso)) return;
     try {
       const metaRes = UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + mediaId, { headers: { "Authorization": "Bearer " + META_TOKEN } });
@@ -501,32 +733,25 @@ function procesarVideoEntrante(from, mediaId) {
       const driveUrl = file.getUrl();
       logMensaje(from, "entrante", "video_drive", driveUrl);
 
-      if (paso === "esperando_video_analisis") {
+      if (paso === "esperando_video_indice") {
+        const nombreIndice = conv.nombre || obtenerNombreLead(from);
+        enviarMensajeWhatsApp(from, "\u2705 Recib\u00ed tu video " + nombreIndice + ". Calculando tu \u00cdndice Golfito, dame un momento... \uD83D\uDCCA");
+        guardarConversacion(from, { ...conv, paso: "calculando_indice", video_url1: driveUrl });
+        procesarIndiceGolfito(from, driveUrl, conv);
+      } else if (paso === "esperando_video_analisis") {
         const nombreAnal = conv.nombre || obtenerNombreLead(from);
-        if (MODO_TEST_ANALISIS) {
-          enviarMensajeWhatsApp(from, "\u23f3 Recib\u00ed tu video " + nombreAnal + ". Analizando tu swing con IA, dame un momento...");
-          const datos = { ...conv, paso: "analizando_video", video_url1: driveUrl, ejvsplan: "2" };
-          // FIX BUG 2: registrar sesion ANTES del analisis para que el video quede en Sheets
-          registrarSesion(from, datos);
-          guardarConversacion(from, datos);
-          procesarAnalisisVideo(from, datos, false);
-        } else {
-          const codigoAnal = "ANAL-" + String(Date.now()).slice(-6);
-          const mpResAnal = crearPreferenciaPago(from, nombreAnal, "analisis", codigoAnal);
-          if (mpResAnal.ok) {
-            enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + nombreAnal + " \u2705\n\nPara analizar tu swing realiz\u00e1 el pago de *$ 5.000* ac\u00e1:\n" + mpResAnal.link + "\n\nUna vez que pagues, escribinos ac\u00e1 y verificamos el pago \u26f3");
-            const datosAnal = { ...conv, paso: "esperando_pago_analisis", video_url1: driveUrl, mp_external_ref: mpResAnal.externalRef || codigoAnal, ejvsplan: "2" };
-            guardarConversacion(from, datosAnal);
-            registrarSesion(from, datosAnal);
-          } else {
-            Logger.log("MP fallo en analisis, fallback directo: " + (mpResAnal.error||""));
-            enviarMensajeWhatsApp(from, "\u23f3 Recib\u00ed tu video " + nombreAnal + ". Analizando tu swing con IA, dame un momento...");
-            const datos = { ...conv, paso: "analizando_video", video_url1: driveUrl, ejvsplan: "2" };
-            registrarSesion(from, datos);
-            guardarConversacion(from, datos);
-            procesarAnalisisVideo(from, datos, false);
-          }
-        }
+        // Registrar sesión con video
+        const datosConVideo = { ...conv, video_url1: driveUrl, ejvsplan: "2" };
+        registrarSesion(from, datosConVideo);
+        // Pedir contexto opcional antes de procesar
+        enviarMensajeWhatsApp(from,
+          "\u2705 Recib\u00ed tu video " + nombreAnal + ".\n\n" +
+          "\u00bfHay algo espec\u00edfico en lo que quer\u00e9s que me enfoque? _(opcional)_\n\n" +
+          "Ej: \u00bfMi grip est\u00e1 bien? \u00bfEstoy haciendo slice? \u00bfTransfiero bien el peso?\n\n" +
+          "_(Escrib\u00ed tu comentario o *omitir* para continuar)_"
+        );
+        guardarConversacion(from, { ...datosConVideo, paso: "esperando_contexto_video" });
+
       } else if (paso === "esperando_video_plan_1") {
         enviarMensajeWhatsApp(from, "Recib\u00ed el primer video \u2705\n\nAhora enviam\u00e9 un segundo video desde el *frente* \ud83c\udfa5 _(menos de 7 segundos)_\n\nSi no ten\u00e9s, escrib\u00ed *saltar*");
         guardarConversacion(from, { ...conv, paso: "esperando_video_plan_2", video_url1: driveUrl });
@@ -543,11 +768,18 @@ function procesarVideoEntrante(from, mediaId) {
           enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + conv.nombre + " \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
           guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: driveUrl });
         } else {
-          const cod2 = safeString(obtenerCodigoPlanPendiente(from)) || generarCodigoPlan();
-          const mpRes2 = crearPreferenciaPago(from, conv.nombre||obtenerNombreLead(from), "plan", cod2);
-          const lnk2 = mpRes2.ok ? mpRes2.link : "https://mpago.la/TU-LINK-PLAN";
-          enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + conv.nombre + " \u2705\n\nPara continuar realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + lnk2 + "\n\nCualquier otra consulta escribinos \u26f3");
-          guardarConversacion(from, { ...conv, paso: "esperando_pago_plan", video_url1: driveUrl, mp_codigo_plan: cod2 });
+          const nombre = conv.nombre || obtenerNombreLead(from);
+          const saldo = obtenerSaldoLead(from);
+          if (saldo >= COSTO_PLAN) {
+            enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + nombre + " \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
+            guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: driveUrl });
+          } else {
+            const cod2 = safeString(obtenerCodigoPlanPendiente(from)) || generarCodigoPlan();
+            const mpRes2 = crearPreferenciaPago(from, nombre, "plan", cod2, COSTO_PLAN);
+            const lnk2 = mpRes2.ok ? mpRes2.link : "https://mpago.la/TU-LINK-PLAN";
+            enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + nombre + " \u2705\n\nPara continuar realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + lnk2 + "\n\nCualquier otra consulta escribinos \u26f3");
+            guardarConversacion(from, { ...conv, paso: "esperando_pago_plan", video_url1: driveUrl, mp_codigo_plan: cod2 });
+          }
         }
       }
     } catch (err) {
@@ -570,7 +802,7 @@ function procesarAnalisisVideo(from, conv, esSegundoVideo) {
     if (!driveUrl) throw new Error("No hay video para analizar");
     const match = driveUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (!match) throw new Error("No se pudo obtener el ID del video");
-    const resultado = analizarSwingConGemini(match[1]);
+    const resultado = analizarSwingConGemini(match[1], conv.contexto_analisis || "", from);
     if (!resultado.ok) throw new Error(resultado.error);
     const a = resultado.analisis;
     const titulo = esSegundoVideo ? "\ud83e\udd16 *An\u00e1lisis complementario (" + a.angulo + ")*" : "\ud83e\udd16 *An\u00e1lisis de tu swing (" + a.angulo + ")*";
@@ -664,10 +896,10 @@ function logMensaje(from, direccion, tipo, contenido) {
 function registrarOActualizarLead(from, nombre, handicap) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(LEADS_SHEET);
-  if (!sheet) { sheet = ss.insertSheet(LEADS_SHEET); sheet.appendRow(["whatsapp","nombre","fecha_registro","handicap","notas"]); }
+  if (!sheet) { sheet = ss.insertSheet(LEADS_SHEET); sheet.appendRow(["whatsapp","nombre","fecha_registro","handicap","notas","saldo"]); }
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) { if (safeString(data[i][0]) === from) { sheet.getRange(i+1,4).setValue(handicap); return; } }
-  sheet.appendRow([from, nombre, new Date(), handicap, ""]);
+  sheet.appendRow([from, nombre, new Date(), handicap, "", 0]);
 }
 
 function registrarSesion(from, conv, analisis1, analisis2) {
@@ -677,8 +909,8 @@ function registrarSesion(from, conv, analisis1, analisis2) {
   const aspecto = mapAspectoLead(conv.aspecto||""); const nivel = mapNivel(conv.handicap||"", aspecto);
   const ejvsplan = conv.ejvsplan||"1"; const a1 = analisis1||conv.analisis1||null; const a2 = analisis2||conv.analisis2||null;
   const codigoPlan = ejvsplan==="3" ? generarCodigoPlan() : ""; const numPlanAlumno = ejvsplan==="3" ? contarPlanesAlumno(from,sheet)+1 : "";
-  const pagoStatus = (MODO_TEST_PLAN || MODO_TEST_ANALISIS) ? "pagado" : (ejvsplan==="1" ? "gratis" : "pendiente");
-  const pagoMonto = ejvsplan==="1" ? 0 : ejvsplan==="2" ? 5 : 15;
+  const pagoStatus = (MODO_TEST_PLAN || MODO_TEST_ANALISIS || conv.pago_wallet) ? "pagado" : (ejvsplan==="1" ? "gratis" : "pendiente");
+  const pagoMonto = ejvsplan==="1" ? 0 : ejvsplan==="2" ? COSTO_ANALISIS : COSTO_PLAN;
   const row = new Array(SESIONES_HEADERS.length).fill("");
   row[COL.TIMESTAMP-1]=new Date(); row[COL.WHATSAPP-1]=from; row[COL.ASPECTO-1]=aspecto; row[COL.NIVEL-1]=nivel;
   row[COL.EJVSPLAN-1]=ejvsplan; row[COL.STATUS-1]=""; row[COL.VIDEO_URL1-1]=conv.video_url1||"";
@@ -688,7 +920,7 @@ function registrarSesion(from, conv, analisis1, analisis2) {
   row[COL.ANALISIS_ERROR_IA2-1]=a2?.error_principal||""; row[COL.ANALISIS_AREA_IA2-1]=a2?.area||"";
   row[COL.ANALISIS_SEVERIDAD_IA2-1]=a2?.severidad||""; row[COL.ANALISIS_RECOMENDACION_IA2-1]=a2?.recomendacion||"";
   row[COL.ANALISIS_ANGULO_IA2-1]=a2?.angulo||""; row[COL.PAGO_STATUS-1]=pagoStatus; row[COL.PAGO_MONTO-1]=pagoMonto;
-  row[COL.PAGO_FECHA-1]=(MODO_TEST_PLAN || MODO_TEST_ANALISIS) ? new Date() : ""; row[COL.CODIGO_PLAN-1]=codigoPlan; row[COL.NUM_PLAN_ALUMNO-1]=numPlanAlumno;
+  row[COL.PAGO_FECHA-1]=(MODO_TEST_PLAN || MODO_TEST_ANALISIS || conv.pago_wallet) ? new Date() : ""; row[COL.CODIGO_PLAN-1]=codigoPlan; row[COL.NUM_PLAN_ALUMNO-1]=numPlanAlumno;
   row[COL.COMENTARIOS_ALUMNO-1]=conv.comentarios_alumno||"";
   sheet.appendRow(row);
   registrarOActualizarLead(from, conv.nombre||"", conv.handicap||"");
@@ -776,8 +1008,7 @@ function enviarDocumentoWhatsApp(telefono, fileId, fileName) {
 }
 
 // ============================================
-// FIX BUG 1: procesarSesionesPendientes
-// Saltear planes (ejvsplan=3) con pago_status=pagado — ya manejados por el flujo
+// procesarSesionesPendientes
 // ============================================
 function procesarSesionesPendientes() {
   const lock = LockService.getScriptLock(); if (!lock.tryLock(3000)) return;
@@ -794,8 +1025,8 @@ function procesarSesionesPendientes() {
       const status = safeString(row[COL.STATUS-1]).toLowerCase(); const contenidoEnviado = safeString(row[COL.CONTENIDO_ENVIADO-1]);
       const pagoStatusRow = safeString(row[COL.PAGO_STATUS-1]).toLowerCase();
       if (!whatsapp || status==="enviado" || status==="procesando" || status==="pendiente_manual" || contenidoEnviado) continue;
-      if (pagoStatusRow === "pendiente") continue;
-      // FIX BUG 1: planes pagados ya fueron manejados por el flujo conversacional
+      if (pagoStatusRow === "pendiente" || pagoStatusRow === "pendiente_recarga") continue;
+      if (ejvsplanRaw === "recarga") continue;
       if (ejvsplanRaw === "3" && pagoStatusRow === "pagado") {
         sesionesSheet.getRange(rowNumber, COL.STATUS).setValue("pendiente_manual");
         continue;
@@ -857,15 +1088,15 @@ function obtenerLeads() {
   const sesionesSheet = ss.getSheetByName(SESIONES_SHEET); const leadsSheet = ss.getSheetByName(LEADS_SHEET);
   if (!sesionesSheet) return { leads: [] };
   const sesiones = sesionesSheet.getDataRange().getValues(); const leadsData = leadsSheet ? leadsSheet.getDataRange().getValues() : [];
-  const leadsMap = {}; for (let i=1;i<leadsData.length;i++) { const wa=safeString(leadsData[i][0]); if (wa) leadsMap[wa]={nombre:safeString(leadsData[i][1]),handicap:safeString(leadsData[i][3])}; }
+  const leadsMap = {}; for (let i=1;i<leadsData.length;i++) { const wa=safeString(leadsData[i][0]); if (wa) leadsMap[wa]={nombre:safeString(leadsData[i][1]),handicap:safeString(leadsData[i][3]),saldo:parseFloat(leadsData[i][LEADS_COL_SALDO-1])||0}; }
   const convsSheet = ss.getSheetByName(CONVERSATIONS_SHEET); const convsMap = {};
   if (convsSheet) { const cd=convsSheet.getDataRange().getValues(); for (let i=1;i<cd.length;i++) { const wa=safeString(cd[i][0]); if (!wa) continue; try { const e=JSON.parse(safeString(cd[i][1]))||{}; if (e.comentarios_alumno) convsMap[wa]=e.comentarios_alumno; } catch(e){} } }
   const leads = [];
   for (let i=1;i<sesiones.length;i++) {
     const row=sesiones[i]; const whatsapp=safeString(row[COL.WHATSAPP-1]); const ejvsplan=safeString(row[COL.EJVSPLAN-1]); const status=safeString(row[COL.STATUS-1]).toLowerCase();
     if (!whatsapp || (ejvsplan!=="3" && ejvsplan!=="2")) continue;
-    const li = leadsMap[whatsapp]||{nombre:"",handicap:""};
-    leads.push({ rowIndex:i+1, whatsapp, nombre:li.nombre, handicap:li.handicap, nivel:safeString(row[COL.NIVEL-1]), aspecto:safeString(row[COL.ASPECTO-1]), ejvsplan, status,
+    const li = leadsMap[whatsapp]||{nombre:"",handicap:"",saldo:0};
+    leads.push({ rowIndex:i+1, whatsapp, nombre:li.nombre, handicap:li.handicap, saldo:li.saldo, nivel:safeString(row[COL.NIVEL-1]), aspecto:safeString(row[COL.ASPECTO-1]), ejvsplan, status,
       videoUrl1:safeString(row[COL.VIDEO_URL1-1]), videoUrl2:safeString(row[COL.VIDEO_URL2-1]),
       analisisError1:safeString(row[COL.ANALISIS_ERROR_IA1-1]), analisisArea1:safeString(row[COL.ANALISIS_AREA_IA1-1]),
       analisisSeveridad1:safeString(row[COL.ANALISIS_SEVERIDAD_IA1-1]), analisisRecomendacion1:safeString(row[COL.ANALISIS_RECOMENDACION_IA1-1]),
@@ -885,6 +1116,36 @@ function obtenerLeads() {
   }
   leads.sort((a,b) => { if (a.status==='pendiente_manual' && b.status!=='pendiente_manual') return -1; if (a.status!=='pendiente_manual' && b.status==='pendiente_manual') return 1; return 0; });
   return { leads };
+}
+
+function obtenerSaldosLeads() {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
+    if (!sheet) return { leads: [] };
+    const data = sheet.getDataRange().getValues();
+    const leads = [];
+    for (let i = 1; i < data.length; i++) {
+      const wa = safeString(data[i][0]);
+      if (!wa) continue;
+      leads.push({ whatsapp: wa, nombre: safeString(data[i][1]), saldo: parseFloat(data[i][LEADS_COL_SALDO-1]) || 0 });
+    }
+    return { leads };
+  } catch(err) { return { leads: [] }; }
+}
+
+function ajustarSaldoDesdePanel(whatsapp, nuevoSaldo) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
+    if (!sheet) return { ok: false, error: "No encontré Leads" };
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (safeString(data[i][0]) === whatsapp) {
+        sheet.getRange(i+1, LEADS_COL_SALDO).setValue(parseFloat(nuevoSaldo) || 0);
+        return { ok: true };
+      }
+    }
+    return { ok: false, error: "No encontré el usuario" };
+  } catch(err) { return { ok: false, error: err.toString() }; }
 }
 
 function obtenerConversacionesActivas() {
@@ -934,9 +1195,6 @@ function enviarMensajeDesdePanel(whatsapp, mensaje) {
   catch(err) { Logger.log("Error enviarMensajeDesdePanel: "+err); return {ok:false,error:err.toString()}; }
 }
 
-// ============================================
-// FIX BUG 3: obtenerConsultas y marcarConsultaRespondida
-// ============================================
 function obtenerConsultas() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1119,15 +1377,24 @@ function subirVideoAGemini(fileId) {
   return fileUri;
 }
 
-function analizarSwingConGemini(driveFileId) {
+function analizarSwingConGemini(driveFileId, contextoAdicional, from) {
   try {
     const fileUri = subirVideoAGemini(driveFileId);
     Logger.log("fileUri: " + fileUri);
-    const prompt = "Sos un coach profesional de golf con 20 años de experiencia analizando swings amateurs. Tu enfoque es amigable y pedagógico para principiantes: identificás el error más crítico y lo explicás de forma natural, usando el vocabulario habitual del club pero evitando tecnicismos complejos de física o biomecánica que abrumen al jugador.\n\nAnalizá el video del swing amateur siguiendo estrictamente estos pasos:\n\nPASO 1 — CONTEXTO DEL TIRO:\nIdentificá qué palo/área está usando el jugador: Drive, Hierros, Approach, Putt, Bunker o General.\n\nPASO 2 — DETECTAR ÁNGULO DE CÁMARA:\n- \"perfil\" (Cámara en la línea del objetivo).\n- \"frontal\" (Cámara de frente al pecho del jugador).\n- \"desconocido\" (Cámara en movimiento, oblicua o ángulo que impide ver el cuerpo/palo).\n*Nota: Si es \"desconocido\", omití el paso 3 y reportá el error de cámara en los detalles técnicos.*\n\nPASO 3 — EVALUAR ERROR CRÍTICO SEGÚN EL ÁNGULO:\nEvaluá las siguientes fases buscando únicamente el error que cause mayor pérdida de consistencia o dirección:\n- Si es PERFIL: Alineación en el stance, inicio del movimiento (takeaway), plano del backswing, downswing, impacto, follow through y finish.\n- Si es FRONTAL: Postura/grip, posición de la cabeza, transferencia de peso en el backswing, y liberación de manos en el impacto.\n\nGUÍA DE LENGUAJE (Equilibrio para Principiantes):\n✔ SÍ PODÉS usar los términos tradicionales y naturales del golf: grip, stance, lie, spin, smash factor, putt, drive, approach, backswing, downswing, follow through, finish.\n❌ EVITÁ jerga compleja de errores o datos de lanzamiento. Buscá alternativas descriptivas y sencillas en español para conceptos como:\n- Errores/Biomecánica: casting (ej: \"soltar las manos antes de tiempo\"), over the top (\"tirar el cuerpo encima\"), chicken wing (\"doblar el codo hacia afuera\"), early extension (\"perder la postura / enderezarse antes de tiempo\"), sway/slide (\"balanceo lateral\"), wrist hinge (\"quiebre de muñecas\"), scooping (\"cucharear\") o topping (\"pegarle arriba\").\n- Datos de radar/física: launch angle, club path, face angle, attack angle, club speed, apex, chunk/duff (\"pegarle pesado/a la tierra\"), o thin shot (\"pegarle finito\").\n\nRespondé EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni backticks. Respetá este esquema:\n{\"angulo\":\"perfil|frontal|desconocido\",\"area\":\"Drive|Hierros|Approach|Putt|Bunker|General\",\"severidad\":\"leve|moderado|importante\",\"error_principal\":\"...\",\"detalles\":\"...\",\"recomendacion\":\"...\"}";
+    const contextoStr = contextoAdicional ? "\n\nEl alumno indicó que quiere que te enfoques en: \"" + contextoAdicional + "\". Tené esto en cuenta en tu análisis." : "";
+    // Contexto histórico
+    let contextoHistorico = "";
+    if (from) {
+      const ultimoAnalisis = obtenerUltimoAnalisis(from);
+      if (ultimoAnalisis) {
+        contextoHistorico = "\n\nANÁLISIS ANTERIOR del mismo alumno — error detectado: \"" + ultimoAnalisis.error + "\" (severidad: " + ultimoAnalisis.severidad + "). En tu análisis actual, indicá si este problema persiste, mejoró o empeoró. Incorporá esa comparación en el campo 'detalles'.";
+      }
+    }
+    const prompt = "Sos un coach profesional de golf con 20 años de experiencia analizando swings amateurs. Tu enfoque es amigable y pedagógico para principiantes: identificás el error más crítico y lo explicás de forma natural, usando el vocabulario habitual del club pero evitando tecnicismos complejos de física o biomecánica que abrumen al jugador.\n\nAnalizá el video del swing amateur siguiendo estrictamente estos pasos:\n\nPASO 1 — CONTEXTO DEL TIRO:\nIdentificá qué palo/área está usando el jugador: Drive, Hierros, Approach, Putt, Bunker o General.\n\nPASO 2 — DETECTAR ÁNGULO DE CÁMARA:\n- \"perfil\" (Cámara en la línea del objetivo).\n- \"frontal\" (Cámara de frente al pecho del jugador).\n- \"desconocido\" (Cámara en movimiento, oblicua o ángulo que impide ver el cuerpo/palo).\n*Nota: Si es \"desconocido\", omití el paso 3 y reportá el error de cámara en los detalles técnicos.*\n\nPASO 3 — EVALUAR ERROR CRÍTICO SEGÚN EL ÁNGULO:\nEvaluá las siguientes fases buscando únicamente el error que cause mayor pérdida de consistencia o dirección:\n- Si es PERFIL: Alineación en el stance, inicio del movimiento (takeaway), plano del backswing, downswing, impacto, follow through y finish.\n- Si es FRONTAL: Postura/grip, posición de la cabeza, transferencia de peso en el backswing, y liberación de manos en el impacto.\n\nGUÍA DE LENGUAJE (Equilibrio para Principiantes):\n✔ SÍ PODÉS usar los términos tradicionales y naturales del golf: grip, stance, lie, spin, smash factor, putt, drive, approach, backswing, downswing, follow through, finish.\n❌ EVITÁ jerga compleja de errores o datos de lanzamiento. Buscá alternativas descriptivas y sencillas en español para conceptos como:\n- Errores/Biomecánica: casting (ej: \"soltar las manos antes de tiempo\"), over the top (\"tirar el cuerpo encima\"), chicken wing (\"doblar el codo hacia afuera\"), early extension (\"perder la postura / enderezarse antes de tiempo\"), sway/slide (\"balanceo lateral\"), wrist hinge (\"quiebre de muñecas\"), scooping (\"cucharear\") o topping (\"pegarle arriba\").\n- Datos de radar/física: launch angle, club path, face angle, attack angle, club speed, apex, chunk/duff (\"pegarle pesado/a la tierra\"), o thin shot (\"pegarle finito\")." + contextoStr + "\n\nRespondé EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni backticks. Respetá este esquema:\n{\"angulo\":\"perfil|frontal|desconocido\",\"area\":\"Drive|Hierros|Approach|Putt|Bunker|General\",\"severidad\":\"leve|moderado|importante\",\"error_principal\":\"...\",\"detalles\":\"...\",\"recomendacion\":\"...\"}";
     const MAX_INTENTOS=5; const ESPERA_MS=[5000,10000,20000,30000,40000]; let lastError="";
     for (let intento=0;intento<MAX_INTENTOS;intento++) {
       if (intento>0) Utilities.sleep(ESPERA_MS[intento-1]);
-      const response = UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+GEMINI_API_KEY, { method:"POST", headers:{"Content-Type":"application/json"}, muteHttpExceptions:true, deadline:120, payload:JSON.stringify({contents:[{parts:[{text:prompt},{file_data:{mime_type:"video/mp4",file_uri:fileUri}}]}],generationConfig:{temperature:0.2}}) });
+      const response = UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+GEMINI_API_KEY, { method:"POST", headers:{"Content-Type":"application/json"}, muteHttpExceptions:true, deadline:120, payload:JSON.stringify({contents:[{parts:[{text:prompt+contextoStr+contextoHistorico},{file_data:{mime_type:"video/mp4",file_uri:fileUri}}]}],generationConfig:{temperature:0.2}}) });
       const statusCode = response.getResponseCode(); const body = response.getContentText();
       if (statusCode===503) { lastError="Error Gemini 503 intento "+(intento+1)+": "+body; Logger.log(lastError); continue; }
       if (statusCode<200||statusCode>=300) throw new Error("Error Gemini "+statusCode+": "+body);
@@ -1142,12 +1409,16 @@ function analizarSwingConGemini(driveFileId) {
 // ============================================
 // MERCADOPAGO
 // ============================================
-function crearPreferenciaPago(whatsapp, nombre, tipo, codigoPlan) {
+function crearPreferenciaPago(whatsapp, nombre, tipo, codigoPlan, montoCustom) {
   try {
-    const esAnalisis = tipo==="analisis";
-    const monto = esAnalisis ? 1000 : 3000;
+    let monto, titulo;
+    if (tipo === "analisis") { monto = montoCustom || COSTO_ANALISIS; titulo = "Analisis de swing — " + nombre; }
+    else if (tipo === "plan") { monto = montoCustom || COSTO_PLAN; titulo = "Plan personalizado — " + nombre; }
+    else if (tipo === "recarga") { monto = montoCustom || 5000; titulo = "Recarga Golfito — " + nombre; }
+    else { monto = montoCustom || 5000; titulo = "Golfito — " + nombre; }
+    if (monto < 1000) monto = 1000;
     const externalRef = codigoPlan+"_"+whatsapp;
-    const payload = { items:[{title:(esAnalisis?"Analisis de swing — ":"Plan personalizado — ")+nombre,quantity:1,unit_price:monto,currency_id:"CLP"}], payer:{name:nombre}, external_reference:externalRef, notification_url:MP_WEBHOOK_URL+"?source=mp", back_urls:{success:"https://wa.me/"+whatsapp,failure:"https://wa.me/"+whatsapp,pending:"https://wa.me/"+whatsapp}, auto_return:"approved", statement_descriptor:"Golfito" };
+    const payload = { items:[{title:titulo,quantity:1,unit_price:monto,currency_id:"CLP"}], payer:{name:nombre}, external_reference:externalRef, notification_url:MP_WEBHOOK_URL+"?source=mp", back_urls:{success:"https://wa.me/"+whatsapp,failure:"https://wa.me/"+whatsapp,pending:"https://wa.me/"+whatsapp}, auto_return:"approved", statement_descriptor:"Golfito" };
     const res = UrlFetchApp.fetch("https://api.mercadopago.com/checkout/preferences", { method:"POST", headers:{"Authorization":"Bearer "+MP_ACCESS_TOKEN,"Content-Type":"application/json"}, payload:JSON.stringify(payload), muteHttpExceptions:true });
     const data = JSON.parse(res.getContentText());
     if (!data.init_point) throw new Error("MP no devolvio init_point: "+res.getContentText());
@@ -1170,12 +1441,30 @@ function procesarPagoMP(paymentId) {
     if (pago.status!=="approved") { Logger.log("Pago no aprobado: "+pago.status); return; }
     const externalRef = pago.external_reference||""; if (!externalRef) { Logger.log("Sin external_reference"); return; }
     const partes = externalRef.split("_"); const whatsapp = partes[partes.length-1]; const codigoPlan = partes.slice(0,partes.length-1).join("_");
+    const montoAprobado = pago.transaction_amount || 0;
+
+    // Detectar si es recarga
+    if (codigoPlan.startsWith("RECARGA-")) {
+      acreditarSaldoLead(whatsapp, montoAprobado);
+      const nombre = obtenerNombreLead(whatsapp);
+      const nuevoSaldo = obtenerSaldoLead(whatsapp);
+      enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Recarga confirmada " + nombre + "!\n\uD83D\uDCB0 *Saldo actual: " + formatearSaldo(nuevoSaldo) + " CLP*\n\nYa pod\u00e9s usar tu saldo para analizar swings o solicitar un plan \u26f3");
+      const conv = obtenerConversacion(whatsapp);
+      guardarConversacion(whatsapp, { ...conv, paso: "esperando_menu_principal" });
+      enviarMenuPrincipal(whatsapp, nombre);
+      // Actualizar registro en sesiones
+      const ss2 = SpreadsheetApp.getActiveSpreadsheet(); const sh2 = ss2.getSheetByName(SESIONES_SHEET);
+      if (sh2) { const d2=sh2.getDataRange().getValues(); for (let i=d2.length-1;i>=1;i--) { if (safeString(d2[i][COL.WHATSAPP-1])===whatsapp && safeString(d2[i][COL.PAGO_STATUS-1])==="pendiente_recarga") { sh2.getRange(i+1,COL.PAGO_STATUS).setValue("pagado"); sh2.getRange(i+1,COL.PAGO_FECHA).setValue(new Date()); sh2.getRange(i+1,COL.MP_PAYMENT_ID).setValue(String(paymentId)); break; } } }
+      Logger.log("Recarga procesada OK para: " + whatsapp);
+      return;
+    }
+
     const ss = SpreadsheetApp.getActiveSpreadsheet(); const sheet = ss.getSheetByName(SESIONES_SHEET); if (!sheet) return;
     const data = sheet.getDataRange().getValues();
     for (let i=1;i<data.length;i++) {
       const rowWa=safeString(data[i][COL.WHATSAPP-1]); const rowCodigo=safeString(data[i][COL.CODIGO_PLAN-1]); const rowStatus=safeString(data[i][COL.PAGO_STATUS-1]);
       if (rowWa!==whatsapp) continue; if (rowCodigo && rowCodigo!==codigoPlan) continue; if (rowStatus==="pagado") continue;
-      sheet.getRange(i+1,COL.PAGO_STATUS).setValue("pagado"); sheet.getRange(i+1,COL.PAGO_FECHA).setValue(new Date()); sheet.getRange(i+1,COL.PAGO_MONTO).setValue(pago.transaction_amount||""); sheet.getRange(i+1,COL.MP_PAYMENT_ID).setValue(String(paymentId));
+      sheet.getRange(i+1,COL.PAGO_STATUS).setValue("pagado"); sheet.getRange(i+1,COL.PAGO_FECHA).setValue(new Date()); sheet.getRange(i+1,COL.PAGO_MONTO).setValue(montoAprobado); sheet.getRange(i+1,COL.MP_PAYMENT_ID).setValue(String(paymentId));
       const ejvsplan = safeString(data[i][COL.EJVSPLAN-1]); const conv = obtenerConversacion(whatsapp); const nombre = obtenerNombreLead(whatsapp)||conv.nombre||"";
       if (ejvsplan==="2") {
         enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Pago confirmado "+nombre+"! Analizando tu swing con IA, dame un momento...");
@@ -1229,7 +1518,6 @@ function procesarReintegroMP(paymentId, monto) {
 // ============================================
 // HELPERS
 // ============================================
-// FIX BUG 2: obtenerUltimosVideosSesion busca en cualquier sesion (ejvsplan=2 incluido)
 function obtenerUltimosVideosSesion(from) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET); if (!sheet) return {url1:"",url2:""};
   const data = sheet.getDataRange().getValues();
@@ -1295,13 +1583,125 @@ function mapTipoSolicitud(value) { const v=safeString(value).toLowerCase(); if (
 function mapTipoSolicitudPorEjvsplan(value) { const v=safeString(value); if (v==="3") return "plan_personalizado"; if (v==="2") return "analisis_video"; return "ejercicio_gratis"; }
 
 // ============================================
+// ÍNDICE GOLFITO
+// ============================================
+function procesarIndiceGolfito(from, driveUrl, conv) {
+  try {
+    const match = driveUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (!match) throw new Error("No se pudo obtener el ID del video");
+    const resultado = analizarIndiceConGemini(match[1]);
+    if (!resultado.ok) throw new Error(resultado.error);
+    const s = resultado.scores;
+    const scoreTotal = Math.round((s.grip + s.postura + s.backswing + s.downswing + s.impacto + s.follow_through + s.transferencia_peso) / 7 * 25);
+    // Guardar en sheet
+    guardarIndiceGolfito(from, scoreTotal, s, driveUrl);
+    // Buscar índice anterior
+    const anterior = obtenerIndiceAnterior(from);
+    const estrellas = n => "⭐".repeat(n) + "☆".repeat(4-n);
+    let msg = "\uD83D\uDCCA *\u00cdndice Golfito: " + scoreTotal + "/100*\n\n";
+    msg += "Grip " + estrellas(s.grip) + "\n";
+    msg += "Postura " + estrellas(s.postura) + "\n";
+    msg += "Backswing " + estrellas(s.backswing) + "\n";
+    msg += "Downswing " + estrellas(s.downswing) + "\n";
+    msg += "Impacto " + estrellas(s.impacto) + "\n";
+    msg += "Follow through " + estrellas(s.follow_through) + "\n";
+    msg += "Transferencia de peso " + estrellas(s.transferencia_peso);
+    if (anterior !== null) {
+      const diff = scoreTotal - anterior;
+      const signo = diff > 0 ? "+" : "";
+      msg += "\n\n\uD83D\uDCC8 *Evoluci\u00f3n:* " + anterior + " \u2192 " + scoreTotal + " (" + signo + diff + ")";
+    }
+    enviarMensajeWhatsApp(from, msg);
+    const nombre = conv.nombre || obtenerNombreLead(from);
+    guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+    enviarMenuPrincipal(from, nombre);
+  } catch(err) {
+    Logger.log("Error procesarIndiceGolfito: " + err);
+    const nombre = conv.nombre || obtenerNombreLead(from);
+    enviarMensajeWhatsApp(from, "Estamos experimentando alta demanda. Intent\u00e1 de nuevo en unos minutos \u26f3");
+    guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+    enviarMenuPrincipal(from, nombre);
+  }
+}
+
+function analizarIndiceConGemini(driveFileId) {
+  try {
+    const fileUri = subirVideoAGemini(driveFileId);
+    const prompt = "Sos un coach profesional de golf evaluando el swing de un jugador amateur. Tu tarea es evaluar 7 dimensiones técnicas del swing con un score del 1 al 4 cada una (1=muy deficiente, 2=deficiente, 3=aceptable, 4=bueno).\n\nDimensiones a evaluar:\n1. grip — posición y presión de las manos en el palo\n2. postura — alineación, flexión de rodillas, inclinación de cadera\n3. backswing — plano, rotación de hombros, extensión de brazos\n4. downswing — secuencia de bajada, plano de ataque\n5. impacto — posición en el momento de contacto\n6. follow_through — extensión post-impacto\n7. transferencia_peso — desplazamiento del peso entre backswing e impacto\n\nSi el ángulo de cámara no permite evaluar alguna dimensión con certeza, asigná 2 como valor neutro.\n\nRespondé EXCLUSIVAMENTE con JSON válido sin texto adicional ni backticks:\n{\"grip\":3,\"postura\":2,\"backswing\":3,\"downswing\":2,\"impacto\":2,\"follow_through\":3,\"transferencia_peso\":2}";
+    const MAX_INTENTOS = 5; const ESPERA_MS = [5000,10000,20000,30000,40000]; let lastError = "";
+    for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+      if (intento > 0) Utilities.sleep(ESPERA_MS[intento-1]);
+      const response = UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+GEMINI_API_KEY, { method:"POST", headers:{"Content-Type":"application/json"}, muteHttpExceptions:true, deadline:120, payload:JSON.stringify({contents:[{parts:[{text:prompt},{file_data:{mime_type:"video/mp4",file_uri:fileUri}}]}],generationConfig:{temperature:0.1}}) });
+      const statusCode = response.getResponseCode(); const body = response.getContentText();
+      if (statusCode === 503) { lastError = "503 intento "+(intento+1); Logger.log(lastError); continue; }
+      if (statusCode < 200 || statusCode >= 300) throw new Error("Error Gemini "+statusCode+": "+body);
+      const data = JSON.parse(body); const text = data.candidates?.[0]?.content?.parts?.[0]?.text||"";
+      const scores = JSON.parse(text.replace(/```json|```/g,"").trim());
+      // Validar que todos los scores sean 1-4
+      ["grip","postura","backswing","downswing","impacto","follow_through","transferencia_peso"].forEach(k => {
+        scores[k] = Math.min(4, Math.max(1, parseInt(scores[k]) || 2));
+      });
+      return { ok: true, scores };
+    }
+    throw new Error("Gemini no disponible tras "+MAX_INTENTOS+" intentos. "+lastError);
+  } catch(err) { Logger.log("Error analizarIndiceConGemini: "+err); return { ok: false, error: err.toString() }; }
+}
+
+function guardarIndiceGolfito(from, scoreTotal, scores, videoUrl) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(INDICE_SHEET);
+    if (!sheet) { sheet = ss.insertSheet(INDICE_SHEET); sheet.appendRow(INDICE_HEADERS); }
+    sheet.appendRow([new Date(), from, scoreTotal, scores.grip, scores.postura, scores.backswing, scores.downswing, scores.impacto, scores.follow_through, scores.transferencia_peso, videoUrl]);
+  } catch(err) { Logger.log("Error guardarIndiceGolfito: "+err); }
+}
+
+function obtenerIndiceAnterior(from) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(INDICE_SHEET);
+    if (!sheet) return null;
+    const data = sheet.getDataRange().getValues();
+    // Buscar de atrás hacia adelante, saltear el último (que acabamos de guardar)
+    let encontrados = 0;
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (safeString(data[i][1]) === from) {
+        encontrados++;
+        if (encontrados === 2) return parseInt(data[i][2]) || null;
+      }
+    }
+    return null;
+  } catch(err) { return null; }
+}
+
+// ============================================
+// CONTEXTO HISTÓRICO PARA ANÁLISIS
+// ============================================
+function obtenerUltimoAnalisis(from) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
+    if (!sheet) return null;
+    const data = sheet.getDataRange().getValues();
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (safeString(data[i][COL.WHATSAPP-1]) !== from) continue;
+      if (safeString(data[i][COL.EJVSPLAN-1]) !== "2") continue;
+      const error1 = safeString(data[i][COL.ANALISIS_ERROR_IA1-1]);
+      const sev1 = safeString(data[i][COL.ANALISIS_SEVERIDAD_IA1-1]);
+      const rec1 = safeString(data[i][COL.ANALISIS_RECOMENDACION_IA1-1]);
+      if (!error1) continue;
+      return { error: error1, severidad: sev1, recomendacion: rec1 };
+    }
+    return null;
+  } catch(err) { return null; }
+}
+
+// ============================================
 // TESTS Y UTILIDADES
 // ============================================
 function testDrive() { let f; const fs=DriveApp.getFoldersByName("Golfito_Videos"); f=fs.hasNext()?fs.next():DriveApp.createFolder("Golfito_Videos"); Logger.log("Drive OK: "+f.getName()); }
 function testEnvioMeta() { enviarMensajeWhatsApp("56975466327","Test desde Apps Script ✅"); }
 function listarModelosGemini() { const res=UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models?key="+GEMINI_API_KEY,{muteHttpExceptions:true}); const data=JSON.parse(res.getContentText()); Logger.log(data.models?.map(m=>m.name).join("\n")||"Sin modelos"); }
 function testLogDirecto() { const sheet=SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog"); Logger.log("Sheet: "+(sheet?"SI":"NO")); sheet.appendRow([new Date(),"test123","saliente","texto","prueba directa"]); Logger.log("OK"); }
-function testGeminiV7() { const resultado=analizarSwingConGemini("10EFfw5W9gInxH4tDdPugTNVp2-Fnyztv"); Logger.log(JSON.stringify(resultado)); }
+function testGeminiV7() { const resultado=analizarSwingConGemini("10EFfw5W9gInxH4tDdPugTNVp2-Fnyztv",""); Logger.log(JSON.stringify(resultado)); }
 function limpiarCacheAnalisis() {
   const props=PropertiesService.getScriptProperties(); const keys=props.getKeys(); let eliminadas=0;
   keys.forEach(k => {
