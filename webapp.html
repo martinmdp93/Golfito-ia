@@ -484,6 +484,14 @@ let ejerciciosLoaded=false,mensajesLoaded=false,consultasLoaded=false,modoAnalis
 let selectedConvWa=null,allConversaciones=[];
 let allConsultas=[];
 const TOKEN_KEY='golfito_panel_token';
+function getToken(){return sessionStorage.getItem(TOKEN_KEY);}
+// Escapa texto que viene de alumnos (WhatsApp) antes de insertarlo como HTML —
+// sin esto, un alumno podría mandar "<img onerror=...>" como comentario/consulta
+// y ejecutar JS en la sesión del profe que abre el panel (XSS persistente).
+function esc(s){return String(s===null||s===undefined?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+// Para texto interpolado dentro de un onclick="fn('...')" inline: hay que escapar
+// para el contexto JS (comilla simple, backslash) y para el atributo HTML (comilla doble).
+function escJs(s){return String(s===null||s===undefined?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;');}
 
 window.onload=function(){
   const token=sessionStorage.getItem(TOKEN_KEY);
@@ -516,9 +524,9 @@ function cargarLeads(){
   google.script.run
     .withSuccessHandler(function(d){allLeads=d.leads||[];aplicarFiltros();actualizarStats();})
     .withFailureHandler(function(e){document.getElementById('pendientes-list').innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">${e.message}</div></div>`;})
-    .obtenerLeads();
+    .obtenerLeads(getToken());
 }
-function cargarEjercicios(){google.script.run.withSuccessHandler(function(d){allEjercicios=d||[];}).withFailureHandler(function(){}).obtenerEjerciciosParaSelector();}
+function cargarEjercicios(){google.script.run.withSuccessHandler(function(d){allEjercicios=d||[];}).withFailureHandler(function(){}).obtenerEjerciciosParaSelector(getToken());}
 function actualizarStats(){
   document.getElementById('stat-pendientes').textContent=allLeads.filter(l=>l.status==='pendiente_manual').length;
   document.getElementById('stat-enviados').textContent=allLeads.filter(l=>l.status==='enviado').length;
@@ -538,13 +546,13 @@ function tipoBadge(e){if(e==='2')return '<span class="badge badge-analisis">🤖
 function renderPendientes(items){
   const c=document.getElementById('pendientes-list');
   if(!items||!items.length){c.innerHTML='<div class="empty"><div class="empty-icon">🎉</div><div class="empty-title">Todo al día</div><div class="empty-sub">No hay sesiones pendientes.</div></div>';return;}
-  c.innerHTML=items.map(l=>`<div class="card pendiente"><div class="card-info"><div class="card-name">${l.nombre||'Sin nombre'}</div><div class="card-meta"><div class="meta-item">🏌️ <strong>${l.nivel}</strong></div>${l.handicap?`<div class="meta-item">HCP <strong>${l.handicap}</strong></div>`:''}</div><div class="card-badges"><span class="badge badge-pendiente">⏳ Pendiente</span>${tipoBadge(l.ejvsplan)}${l.videoUrl1?'<span class="badge badge-video">🎥 Video 1</span>':''}${l.videoUrl2?'<span class="badge badge-video">🎥 Video 2</span>':''}${l.pagoStatus==='pagado'?'<span class="badge badge-enviado">💳 Pagado</span>':''}</div>${l.comentariosAlumno?`<div style="font-size:12px;color:var(--text-muted);font-style:italic;margin-top:2px">💬 "${l.comentariosAlumno}"</div>`:''}<div class="card-date">${l.fecha}</div></div><div class="card-actions"><button class="btn btn-primary btn-sm" onclick="abrirModal(${l.rowIndex})">Ver detalle →</button></div></div>`).join('');
+  c.innerHTML=items.map(l=>`<div class="card pendiente"><div class="card-info"><div class="card-name">${esc(l.nombre)||'Sin nombre'}</div><div class="card-meta"><div class="meta-item">🏌️ <strong>${esc(l.nivel)}</strong></div>${l.handicap?`<div class="meta-item">HCP <strong>${esc(l.handicap)}</strong></div>`:''}</div><div class="card-badges"><span class="badge badge-pendiente">⏳ Pendiente</span>${tipoBadge(l.ejvsplan)}${l.videoUrl1?'<span class="badge badge-video">🎥 Video 1</span>':''}${l.videoUrl2?'<span class="badge badge-video">🎥 Video 2</span>':''}${l.pagoStatus==='pagado'?'<span class="badge badge-enviado">💳 Pagado</span>':''}</div>${l.comentariosAlumno?`<div style="font-size:12px;color:var(--text-muted);font-style:italic;margin-top:2px">💬 "${esc(l.comentariosAlumno)}"</div>`:''}<div class="card-date">${esc(l.fecha)}</div></div><div class="card-actions"><button class="btn btn-primary btn-sm" onclick="abrirModal(${l.rowIndex})">Ver detalle →</button></div></div>`).join('');
 }
 
 function renderHistorial(items){
   const c=document.getElementById('historial-list');
   if(!items||!items.length){c.innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sin historial aún</div><div class="empty-sub">Las sesiones completadas aparecerán acá.</div></div>';return;}
-  c.innerHTML=items.map(l=>`<div class="historial-card" onclick="abrirModal(${l.rowIndex})"><div><div class="historial-name">${l.nombre||'Sin nombre'}</div><div class="historial-meta">${l.nivel} · ${tipoLabel(l.ejvsplan)}</div><div class="historial-meta">${l.fecha}${l.codigoPlan?' · '+l.codigoPlan:''}</div>${l.comentariosAlumno?`<div class="historial-feedback">💬 "${l.comentariosAlumno}"</div>`:''} ${l.feedbackAlumno?`<div class="historial-feedback">⭐ ${l.feedbackScore?l.feedbackScore+'/5':''} "${l.feedbackAlumno}"</div>`:''}</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="badge badge-enviado">✅ Enviado</span>${l.feedbackAlumno?'<span class="badge badge-feedback">💬 Con feedback</span>':''}${l.pagoStatus==='pagado'&&l.ejvsplan==='3'?`<button class="btn btn-outline-muted btn-sm" onclick="event.stopPropagation();solicitarReintegro(${l.rowIndex},'${l.nombre}',${l.pagoMonto})">↩ Reintegrar</button>`:''}</div></div>`).join('');
+  c.innerHTML=items.map(l=>`<div class="historial-card" onclick="abrirModal(${l.rowIndex})"><div><div class="historial-name">${esc(l.nombre)||'Sin nombre'}</div><div class="historial-meta">${esc(l.nivel)} · ${tipoLabel(l.ejvsplan)}</div><div class="historial-meta">${esc(l.fecha)}${l.codigoPlan?' · '+esc(l.codigoPlan):''}</div>${l.comentariosAlumno?`<div class="historial-feedback">💬 "${esc(l.comentariosAlumno)}"</div>`:''} ${l.feedbackAlumno?`<div class="historial-feedback">⭐ ${l.feedbackScore?l.feedbackScore+'/5':''} "${esc(l.feedbackAlumno)}"</div>`:''}</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="badge badge-enviado">✅ Enviado</span>${l.feedbackAlumno?'<span class="badge badge-feedback">💬 Con feedback</span>':''}${l.pagoStatus==='pagado'&&l.ejvsplan==='3'?`<button class="btn btn-outline-muted btn-sm" onclick="event.stopPropagation();solicitarReintegro(${l.rowIndex},'${escJs(l.nombre)}',${l.pagoMonto})">↩ Reintegrar</button>`:''}</div></div>`).join('');
 }
 
 // ── CONSULTAS ──
@@ -554,7 +562,7 @@ function cargarConsultas(){
   google.script.run
     .withSuccessHandler(function(d){allConsultas=d.consultas||[];filtrarConsultas();})
     .withFailureHandler(function(e){document.getElementById('consultas-list').innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Error al cargar</div><div class="empty-sub">${e.message}</div></div>`;})
-    .obtenerConsultas();
+    .obtenerConsultas(getToken());
 }
 function filtrarConsultas(){
   const filtro=document.getElementById('consultas-filtro').value;
@@ -568,10 +576,10 @@ function renderConsultas(items){
   c.innerHTML=items.map(q=>`
     <div class="consulta-card ${q.respondida==='si'?'respondida':''}">
       <div style="flex:1">
-        <div class="consulta-nombre">${q.nombre||'Sin nombre'}</div>
-        <div class="consulta-wa">📱 ${q.whatsapp} &nbsp;·&nbsp; <a href="https://wa.me/${q.whatsapp}" target="_blank" class="wa-link">💬 WhatsApp</a></div>
-        <div class="consulta-texto">${q.consulta}</div>
-        <div class="consulta-fecha">${q.timestamp}</div>
+        <div class="consulta-nombre">${esc(q.nombre)||'Sin nombre'}</div>
+        <div class="consulta-wa">📱 ${esc(q.whatsapp)} &nbsp;·&nbsp; <a href="https://wa.me/${esc(q.whatsapp)}" target="_blank" class="wa-link">💬 WhatsApp</a></div>
+        <div class="consulta-texto">${esc(q.consulta)}</div>
+        <div class="consulta-fecha">${esc(q.timestamp)}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;flex-shrink:0">
         ${q.respondida==='si'
@@ -588,7 +596,7 @@ function marcarRespondida(rowIndex){
       else showToast('❌ Error: '+r.error,true);
     })
     .withFailureHandler(function(e){showToast('❌ '+e.message,true);})
-    .marcarConsultaRespondida(rowIndex);
+    .marcarConsultaRespondida(rowIndex,getToken());
 }
 
 // ── MODAL ──
@@ -598,12 +606,12 @@ function abrirModal(rowIndex){
   document.getElementById('modal-nombre').textContent=currentLead.nombre||'Sin nombre';
   document.getElementById('modal-tipo').textContent=tipoLabel(currentLead.ejvsplan)+(currentLead.codigoPlan?' · '+currentLead.codigoPlan:'');
   document.getElementById('modal-info').innerHTML=`
-    <div class="info-item"><div class="info-label">Handicap</div><div class="info-value">${currentLead.handicap||'—'}</div></div>
-    <div class="info-item"><div class="info-label">Nivel</div><div class="info-value">${currentLead.nivel}</div></div>
-    <div class="info-item"><div class="info-label">Pago</div><div class="info-value">${currentLead.pagoStatus||'—'}</div></div>
-    <div class="info-item"><div class="info-label">Fecha</div><div class="info-value">${currentLead.fecha}</div></div>
-    ${currentLead.codigoPlan?`<div class="info-item"><div class="info-label">Código</div><div class="info-value">${currentLead.codigoPlan}</div></div>`:''}
-    ${currentLead.comentariosAlumno?`<div class="info-item" style="grid-column:1/-1;background:#fff8e6;border-left:3px solid var(--gold)"><div class="info-label">💬 Comentarios</div><div class="info-value" style="color:#a07000;font-size:13px;font-weight:400">${currentLead.comentariosAlumno}</div></div>`:''}`;
+    <div class="info-item"><div class="info-label">Handicap</div><div class="info-value">${esc(currentLead.handicap)||'—'}</div></div>
+    <div class="info-item"><div class="info-label">Nivel</div><div class="info-value">${esc(currentLead.nivel)}</div></div>
+    <div class="info-item"><div class="info-label">Pago</div><div class="info-value">${esc(currentLead.pagoStatus)||'—'}</div></div>
+    <div class="info-item"><div class="info-label">Fecha</div><div class="info-value">${esc(currentLead.fecha)}</div></div>
+    ${currentLead.codigoPlan?`<div class="info-item"><div class="info-label">Código</div><div class="info-value">${esc(currentLead.codigoPlan)}</div></div>`:''}
+    ${currentLead.comentariosAlumno?`<div class="info-item" style="grid-column:1/-1;background:#fff8e6;border-left:3px solid var(--gold)"><div class="info-label">💬 Comentarios</div><div class="info-value" style="color:#a07000;font-size:13px;font-weight:400">${esc(currentLead.comentariosAlumno)}</div></div>`:''}`;
   const ve=document.getElementById('modal-videos');
   let vh='';
   if(currentLead.videoUrl1)vh+=`<a href="${currentLead.videoUrl1}" target="_blank" class="video-link">🎥 Video 1${currentLead.analisisAngulo1?' ('+currentLead.analisisAngulo1+')':''}</a>`;
@@ -655,7 +663,7 @@ function abrirModal(rowIndex){
       google.script.run
         .withSuccessHandler(function(ind){if(currentLead)currentLead.indiceData=ind;})
         .withFailureHandler(function(){})
-        .obtenerUltimoIndiceGolfito(currentLead.whatsapp);
+        .obtenerIndiceGolfitoPanel(currentLead.whatsapp,getToken());
     }
   }else{document.getElementById('section-plan').style.display='none';}
   document.getElementById('modal-overlay').classList.add('open');
@@ -693,22 +701,22 @@ function analizarSwingAuto(){
             currentLead.analisisError2=a2.error_principal;currentLead.analisisArea2=a2.area;currentLead.analisisSeveridad2=a2.severidad;currentLead.analisisRecomendacion2=a2.recomendacion;currentLead.analisisAngulo2=a2.angulo;
             html+=`<div class="analisis-box" style="margin-top:10px">${a2.angulo?`<div class="analisis-tag">Video 2 — ${a2.angulo}</div>`:''} ${renderAnalisisFields(a2.error_principal,a2.severidad,a2.recomendacion)}</div>`;
             document.getElementById('analisis-guardado-contenido').innerHTML=html;
-            google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,a2);
+            google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,a2,getToken());
             showToast('✅ Análisis de ambos videos completado');
           }else{
             document.getElementById('ai-status-gemini').className='ai-status visible error-state';
             document.getElementById('ai-status-gemini').textContent='❌ Error video 2: '+r2.error;
-            google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,null);
+            google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,null,getToken());
           }
         }).withFailureHandler(function(e){
           document.getElementById('ai-auto-loading').style.display='none';
           document.getElementById('ai-status-gemini').className='ai-status visible error-state';
           document.getElementById('ai-status-gemini').textContent='❌ Error video 2: '+e.message;
-          google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,null);
-        }).analizarSwingConGemini(fid2);
+          google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,null,getToken());
+        }).analizarSwingPanelConGemini(fid2,getToken());
       }else{
         document.getElementById('ai-auto-loading').style.display='none';
-        google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,null);
+        google.script.run.withSuccessHandler(function(){}).guardarAnalisisEnSheets(currentLead.rowIndex,a1,null,getToken());
         showToast('✅ Análisis completado');
       }
     }else{
@@ -725,7 +733,7 @@ function analizarSwingAuto(){
     document.getElementById('ai-status-gemini').textContent='❌ Error: '+e.message;
     document.getElementById('section-gemini-botones').style.display='';
     document.getElementById('btn-gemini').style.display='';
-  }).analizarSwingConGemini(fid1);
+  }).analizarSwingPanelConGemini(fid1,getToken());
 }
 
 function renderAnalisisFields(error,severidad,recomendacion){
@@ -787,7 +795,7 @@ function analizarSwing(n){
       else{currentLead.analisisError2=a.error_principal;currentLead.analisisArea2=a.area;currentLead.analisisSeveridad2=a.severidad;currentLead.analisisRecomendacion2=a.recomendacion;currentLead.analisisAngulo2=a.angulo;}
       showToast('✅ Análisis completado');
     }else{st.className='ai-status visible error-state';st.textContent='❌ Error: '+r.error;}
-  }).withFailureHandler(function(e){btn.disabled=false;btn.textContent='🤖 Analizar video '+n;st.className='ai-status visible error-state';st.textContent='❌ Error: '+e.message;}).analizarSwingConGemini(m[1]);
+  }).withFailureHandler(function(e){btn.disabled=false;btn.textContent='🤖 Analizar video '+n;st.className='ai-status visible error-state';st.textContent='❌ Error: '+e.message;}).analizarSwingPanelConGemini(m[1],getToken());
 }
 
 function togglePreview(){
@@ -805,8 +813,8 @@ function togglePreview(){
     return `<div class="pp-indice-fila"><span class="pp-indice-label">${etiqueta}</span><div class="pp-indice-barra-fondo"><div class="pp-indice-barra-relleno" style="width:${pct}%"></div></div><span class="pp-indice-num">${valor}/4</span></div>`;
   }
   let html=`<div class="pp-header"><img class="pp-logo-iso" src="${PP_LOGO_ISO}" alt="Golfito"/><div><img class="pp-logo-word" src="${PP_LOGO_WORD}" alt="Golfito"/><div class="pp-header-sub">${currentLead.codigoPlan||'Plan personalizado'}</div></div></div>`;
-  html+=`<h4>📋 ${currentLead.nombre} — HCP ${currentLead.handicap||'—'} — ${currentLead.nivel}</h4>`;
-  if(currentLead.comentariosAlumno)html+=`<p style="color:var(--text-muted);margin-bottom:6px">💬 ${currentLead.comentariosAlumno}</p>`;
+  html+=`<h4>📋 ${esc(currentLead.nombre)} — HCP ${esc(currentLead.handicap)||'—'} — ${esc(currentLead.nivel)}</h4>`;
+  if(currentLead.comentariosAlumno)html+=`<p style="color:var(--text-muted);margin-bottom:6px">💬 ${esc(currentLead.comentariosAlumno)}</p>`;
   const ind=currentLead.indiceData;
   if(ind){
     html+=`<div class="pp-indice-box"><div class="pp-indice-title">📊 Índice Golfito: ${ind.scoreTotal}/100</div>`
@@ -846,7 +854,7 @@ function enviarPlan(){
   const btn=document.getElementById('btn-enviar');
   const m1=document.getElementById('input-analisis-manual-1').value.trim();
   const m2=document.getElementById('input-analisis-manual-2').value.trim();
-  if(modoAnalisis==='manual'&&(m1||m2))google.script.run.withSuccessHandler(function(){}).guardarAnalisisManual(currentLead.rowIndex,m1,m2);
+  if(modoAnalisis==='manual'&&(m1||m2))google.script.run.withSuccessHandler(function(){}).guardarAnalisisManual(currentLead.rowIndex,m1,m2,getToken());
   function getEj(tipo){const sel=document.getElementById('select-'+tipo);const opt=sel.options[sel.selectedIndex];if(!opt||!opt.value)return null;return{ejercicio:opt.text.split('[')[0].trim(),descripcion:opt.dataset.instruccion||'',video_url:opt.dataset.video||''};}
   const pd={
     modoAnalisis,foco:document.getElementById('input-foco').value,nota_coach:document.getElementById('input-nota-coach').value,
@@ -866,13 +874,13 @@ function enviarPlan(){
   google.script.run
     .withSuccessHandler(function(r){btn.disabled=false;btn.textContent='📄 Generar PDF y enviar';if(r.ok){st.className='ai-status visible success';st.textContent='✅ Plan enviado correctamente.';showToast('✅ Plan enviado a '+currentLead.nombre);setTimeout(()=>{closeModal();cargarLeads();},1800);}else{st.className='ai-status visible error-state';st.textContent='❌ Error: '+r.error;}})
     .withFailureHandler(function(e){btn.disabled=false;btn.textContent='📄 Generar PDF y enviar';st.className='ai-status visible error-state';st.textContent='❌ Error: '+e.message;})
-    .generarYEnviarPlanDesdeWeb(currentLead.rowIndex,pd);
+    .generarYEnviarPlanDesdeWeb(currentLead.rowIndex,pd,getToken());
 }
 
 // ── EJERCICIOS ──
 let allEjerciciosCompletos=[],currentEjercicio=null;
 function cargarEjerciciosTab(){
-  google.script.run.withSuccessHandler(function(d){allEjerciciosCompletos=d.ejercicios||[];poblarFiltroProfesor();filtrarEjercicios();}).withFailureHandler(function(e){document.getElementById('ej-table-body').innerHTML=`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--red)">Error: ${e.message}</td></tr>`;}).obtenerEjerciciosCompletos();
+  google.script.run.withSuccessHandler(function(d){allEjerciciosCompletos=d.ejercicios||[];poblarFiltroProfesor();filtrarEjercicios();}).withFailureHandler(function(e){document.getElementById('ej-table-body').innerHTML=`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--red)">Error: ${e.message}</td></tr>`;}).obtenerEjerciciosCompletos(getToken());
 }
 function poblarFiltroProfesor(){
   const profs=[...new Set(allEjerciciosCompletos.map(e=>e.profesor).filter(Boolean))].sort();
@@ -922,11 +930,11 @@ function guardarEjercicioDesdeModal(){
   if(!nombre||!aspecto||!nivel||!videoUrl){const st=document.getElementById('ej-status');st.className='ai-status visible error-state';st.textContent='⚠️ Nombre, aspecto, nivel y video son obligatorios.';return;}
   const datos={rowIndex:(currentEjercicio&&currentEjercicio.rowIndex?currentEjercicio.rowIndex:null),id:document.getElementById('ej-input-id').value.trim(),nombre,aspecto,nivel,videoUrl,instruccion:document.getElementById('ej-input-instruccion').value.trim(),focoTecnico:document.getElementById('ej-input-foco').value.trim(),tipoEjercicio:document.getElementById('ej-input-tipo').value,profesor:document.getElementById('ej-input-profesor').value.trim(),etiqueta1:document.getElementById('ej-input-etiqueta1').value.trim(),etiqueta2:document.getElementById('ej-input-etiqueta2').value.trim(),etiqueta3:document.getElementById('ej-input-etiqueta3').value.trim()};
   const st=document.getElementById('ej-status');st.className='ai-status visible';st.innerHTML='<div class="spinner"></div> Guardando...';
-  google.script.run.withSuccessHandler(function(r){if(r.ok){showToast(currentEjercicio?'✅ Ejercicio actualizado':'✅ Ejercicio creado');closeModalEjercicio();ejerciciosLoaded=false;cargarEjerciciosTab();cargarEjercicios();}else{st.className='ai-status visible error-state';st.textContent='❌ Error: '+r.error;}}).withFailureHandler(function(e){st.className='ai-status visible error-state';st.textContent='❌ Error: '+e.message;}).guardarEjercicio(datos);
+  google.script.run.withSuccessHandler(function(r){if(r.ok){showToast(currentEjercicio?'✅ Ejercicio actualizado':'✅ Ejercicio creado');closeModalEjercicio();ejerciciosLoaded=false;cargarEjerciciosTab();cargarEjercicios();}else{st.className='ai-status visible error-state';st.textContent='❌ Error: '+r.error;}}).withFailureHandler(function(e){st.className='ai-status visible error-state';st.textContent='❌ Error: '+e.message;}).guardarEjercicio(datos,getToken());
 }
 function confirmarEliminar(rowIndex,nombre){
   if(!confirm(`¿Eliminar "${nombre}"? No se puede deshacer.`))return;
-  google.script.run.withSuccessHandler(function(r){if(r.ok){showToast('🗑 Ejercicio eliminado');cargarEjerciciosTab();cargarEjercicios();}else showToast('❌ Error: '+r.error,true);}).withFailureHandler(function(e){showToast('❌ '+e.message,true);}).eliminarEjercicio(rowIndex);
+  google.script.run.withSuccessHandler(function(r){if(r.ok){showToast('🗑 Ejercicio eliminado');cargarEjerciciosTab();cargarEjercicios();}else showToast('❌ Error: '+r.error,true);}).withFailureHandler(function(e){showToast('❌ '+e.message,true);}).eliminarEjercicio(rowIndex,getToken());
 }
 
 // ── MENSAJES ──
@@ -935,12 +943,12 @@ function cargarMensajes(){
   google.script.run
     .withSuccessHandler(function(d){allConversaciones=d.conversaciones||[];renderConversaciones(allConversaciones);})
     .withFailureHandler(function(e){document.getElementById('mensajes-conv-list').innerHTML=`<div style="padding:16px;color:var(--red);font-size:13px">Error: ${e.message}</div>`;})
-    .obtenerConversacionesActivas();
+    .obtenerConversacionesActivas(getToken());
 }
 function renderConversaciones(items){
   const c=document.getElementById('mensajes-conv-list');
   if(!items.length){c.innerHTML='<div style="padding:20px;color:var(--text-muted);font-size:13px;text-align:center">Sin conversaciones.</div>';return;}
-  c.innerHTML=items.map(cv=>`<div class="mensajes-conv-item ${selectedConvWa===cv.whatsapp?'active':''}" onclick="seleccionarConversacion('${cv.whatsapp}','${(cv.nombre||cv.whatsapp).replace(/'/g,"\\'")}','${cv.paso}','${cv.ultimaActualizacion}')"><div class="mensajes-conv-nombre">${cv.nombre||cv.whatsapp}</div><div class="mensajes-conv-paso">📍 ${cv.paso}</div><div class="mensajes-conv-fecha">${cv.ultimaActualizacion}</div></div>`).join('');
+  c.innerHTML=items.map(cv=>`<div class="mensajes-conv-item ${selectedConvWa===cv.whatsapp?'active':''}" onclick="seleccionarConversacion('${escJs(cv.whatsapp)}','${escJs(cv.nombre||cv.whatsapp)}','${escJs(cv.paso)}','${escJs(cv.ultimaActualizacion)}')"><div class="mensajes-conv-nombre">${esc(cv.nombre||cv.whatsapp)}</div><div class="mensajes-conv-paso">📍 ${esc(cv.paso)}</div><div class="mensajes-conv-fecha">${esc(cv.ultimaActualizacion)}</div></div>`).join('');
 }
 function seleccionarConversacion(wa,nombre,paso,fecha){
   selectedConvWa=wa;
@@ -948,19 +956,19 @@ function seleccionarConversacion(wa,nombre,paso,fecha){
   const panel=document.getElementById('mensajes-panel');
   panel.innerHTML=`
     <div class="mensajes-panel-header">
-      <div class="mensajes-panel-nombre">${nombre}</div>
+      <div class="mensajes-panel-nombre">${esc(nombre)}</div>
       <div class="mensajes-panel-wa">
-        📱 ${wa} &nbsp;·&nbsp;
-        <a href="https://wa.me/${wa}" target="_blank" class="wa-link">💬 Abrir en WhatsApp</a>
-        &nbsp;·&nbsp; <span style="color:rgba(255,255,255,0.55)">Paso: ${paso}</span>
+        📱 ${esc(wa)} &nbsp;·&nbsp;
+        <a href="https://wa.me/${esc(wa)}" target="_blank" class="wa-link">💬 Abrir en WhatsApp</a>
+        &nbsp;·&nbsp; <span style="color:rgba(255,255,255,0.55)">Paso: ${esc(paso)}</span>
       </div>
     </div>
-    <div class="chat-historial" id="chat-historial-${wa}">
+    <div class="chat-historial" id="chat-historial-${esc(wa)}">
       <div class="chat-loading"><div class="spinner"></div> Cargando historial...</div>
     </div>
     <div class="mensajes-compose">
-      <textarea class="mensajes-textarea" id="msg-input-${wa}" placeholder="Escribí tu mensaje para ${nombre}..."></textarea>
-      <button class="btn btn-whatsapp" onclick="enviarMensajePanel('${wa}','${nombre.replace(/'/g,"\\'")}')">💬 Enviar</button>
+      <textarea class="mensajes-textarea" id="msg-input-${esc(wa)}" placeholder="Escribí tu mensaje para ${esc(nombre)}..."></textarea>
+      <button class="btn btn-whatsapp" onclick="enviarMensajePanel('${escJs(wa)}','${escJs(nombre)}')">💬 Enviar</button>
     </div>`;
   google.script.run
     .withSuccessHandler(function(d){
@@ -973,8 +981,8 @@ function seleccionarConversacion(wa,nombre,paso,fecha){
         const dir=m.direccion==='saliente'?'saliente'+(esPanel?' panel':''):'entrante';
         const burbuja=m.tipo==='video'||m.tipo==='video_drive'
           ?`<div class="chat-tipo-video">🎥 Video enviado</div>`
-          :`<div class="chat-bubble">${m.contenido.replace(/\n/g,'<br>')}</div>`;
-        return `<div class="chat-msg ${dir}">${burbuja}<div class="chat-ts">${m.timestamp}</div></div>`;
+          :`<div class="chat-bubble">${esc(m.contenido).replace(/\n/g,'<br>')}</div>`;
+        return `<div class="chat-msg ${dir}">${burbuja}<div class="chat-ts">${esc(m.timestamp)}</div></div>`;
       }).join('');
       hist.scrollTop=hist.scrollHeight;
     })
@@ -982,7 +990,7 @@ function seleccionarConversacion(wa,nombre,paso,fecha){
       const hist=document.getElementById('chat-historial-'+wa);
       if(hist)hist.innerHTML='<div class="chat-empty">No se pudo cargar el historial.</div>';
     })
-    .obtenerChatLogPorWhatsapp(wa);
+    .obtenerChatLogPorWhatsapp(wa,getToken());
 }
 function enviarMensajePanel(wa,nombre){
   const input=document.getElementById('msg-input-'+wa);
@@ -998,14 +1006,14 @@ function enviarMensajePanel(wa,nombre){
       else showToast('❌ Error: '+r.error,true);
     })
     .withFailureHandler(function(e){if(btn){btn.disabled=false;btn.textContent='💬 Enviar';}showToast('❌ Error: '+e.message,true);})
-    .enviarMensajeDesdePanel(wa,msg);
+    .enviarMensajeDesdePanel(wa,msg,getToken());
 }
 
 // ── REINTEGRO ──
 function solicitarReintegro(rowIndex,nombre,monto){
   if(!confirm(`¿Reintegrar el pago de $${monto} a ${nombre}?`))return;
   showToast('⏳ Procesando reintegro...');
-  google.script.run.withSuccessHandler(function(r){if(r.ok){showToast('✅ Reintegro procesado');cargarLeads();}else showToast('❌ Error: '+r.error,true);}).withFailureHandler(function(e){showToast('❌ '+e.message,true);}).procesarReintegroDesdePanel(rowIndex);
+  google.script.run.withSuccessHandler(function(r){if(r.ok){showToast('✅ Reintegro procesado');cargarLeads();}else showToast('❌ Error: '+r.error,true);}).withFailureHandler(function(e){showToast('❌ '+e.message,true);}).procesarReintegroDesdePanel(rowIndex,getToken());
 }
 </script>
 </body>
