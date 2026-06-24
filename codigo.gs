@@ -69,11 +69,11 @@ const SESIONES_HEADERS = [
 // ============================================
 function doGet(e) {
   if (e.parameter?.type === "payment" && e.parameter?.["data.id"]) {
-    procesarPagoMP(e.parameter["data.id"]);
+    _procesarPagoMP(e.parameter["data.id"]);
     return ContentService.createTextOutput("OK");
   }
   if (e.parameter?.source === "mp" && e.parameter?.id) {
-    procesarPagoMP(e.parameter["id"]);
+    _procesarPagoMP(e.parameter["id"]);
     return ContentService.createTextOutput("OK");
   }
   if (e.parameter["hub.verify_token"] === VERIFY_TOKEN && e.parameter["hub.mode"] === "subscribe") {
@@ -90,9 +90,9 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    if (body.type === "payment" && body.data?.id) { procesarPagoMP(body.data.id); return okResponse(); }
-    if (e.parameter?.type === "payment" && e.parameter?.["data.id"]) { procesarPagoMP(e.parameter["data.id"]); return okResponse(); }
-    if (!body.entry?.[0]?.changes?.[0]?.value?.messages) return okResponse();
+    if (body.type === "payment" && body.data?.id) { _procesarPagoMP(body.data.id); return _okResponse(); }
+    if (e.parameter?.type === "payment" && e.parameter?.["data.id"]) { _procesarPagoMP(e.parameter["data.id"]); return _okResponse(); }
+    if (!body.entry?.[0]?.changes?.[0]?.value?.messages) return _okResponse();
     const message = body.entry[0].changes[0].value.messages[0];
     const from = message.from;
 
@@ -105,7 +105,7 @@ function doPost(e) {
     if (msgId) {
       const cache = CacheService.getScriptCache();
       const cacheKey = "msg_" + msgId;
-      if (cache.get(cacheKey)) { Logger.log("Mensaje duplicado ignorado (cache): " + msgId); return okResponse(); }
+      if (cache.get(cacheKey)) { Logger.log("Mensaje duplicado ignorado (cache): " + msgId); return _okResponse(); }
       cache.put(cacheKey, "1", 600); // 10 minutos es de sobra para reintentos de Meta
     }
 
@@ -113,23 +113,23 @@ function doPost(e) {
       const mediaId = message.video.id;
       const props = PropertiesService.getScriptProperties();
       const guardKey = "media_processed_" + mediaId;
-      if (props.getProperty(guardKey)) { Logger.log("Video duplicado ignorado: " + mediaId); return okResponse(); }
+      if (props.getProperty(guardKey)) { Logger.log("Video duplicado ignorado: " + mediaId); return _okResponse(); }
       props.setProperty(guardKey, "1");
-      logMensaje(from, "entrante", "video", mediaId);
-      procesarVideoEntrante(from, mediaId);
-      return okResponse();
+      _logMensaje(from, "entrante", "video", mediaId);
+      _procesarVideoEntrante(from, mediaId);
+      return _okResponse();
     }
-    const text = safeString(message.text?.body).trim();
-    if (!text) return okResponse();
-    logMensaje(from, "entrante", "texto", text);
-    procesarMensajeEntrante(from, text);
+    const text = _safeString(message.text?.body).trim();
+    if (!text) return _okResponse();
+    _logMensaje(from, "entrante", "texto", text);
+    _procesarMensajeEntrante(from, text);
   } catch (err) {
     Logger.log("Error en doPost: " + err + " | Stack: " + err.stack);
     try { SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog").appendRow([new Date(),"ERROR","doPost",err.toString()]); } catch(e2) {}
   }
-  return okResponse();
+  return _okResponse();
 }
-function okResponse() { return ContentService.createTextOutput("OK"); }
+function _okResponse() { return ContentService.createTextOutput("OK"); }
 
 // ============================================
 // LOGIN
@@ -154,15 +154,22 @@ function validarTokenPanel(token) {
   } catch(err) { return { ok: false }; }
 }
 
+// Todas las funciones que el panel expone vía google.script.run deben validar
+// este token en el servidor: el chequeo de login en webapp.html es solo UI,
+// y cualquier función global del proyecto es invocable directo sin pasar por ahí.
+function _autorizadoPanel(token) {
+  try { return validarTokenPanel(token).ok === true; } catch(err) { return false; }
+}
+
 // ============================================
 // WALLET — SALDO
 // ============================================
-function obtenerSaldoLead(from) {
+function _obtenerSaldoLead(from) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
   if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (safeString(data[i][0]) === from) {
+    if (_safeString(data[i][0]) === from) {
       const saldo = parseFloat(data[i][LEADS_COL_SALDO - 1]) || 0;
       return saldo;
     }
@@ -170,12 +177,12 @@ function obtenerSaldoLead(from) {
   return 0;
 }
 
-function debitarSaldoLead(from, monto) {
+function _debitarSaldoLead(from, monto) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
   if (!sheet) return false;
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (safeString(data[i][0]) === from) {
+    if (_safeString(data[i][0]) === from) {
       const saldoActual = parseFloat(data[i][LEADS_COL_SALDO - 1]) || 0;
       if (saldoActual < monto) return false;
       sheet.getRange(i + 1, LEADS_COL_SALDO).setValue(saldoActual - monto);
@@ -185,110 +192,117 @@ function debitarSaldoLead(from, monto) {
   return false;
 }
 
-function acreditarSaldoLead(from, monto) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
-  if (!sheet) return;
+function _acreditarSaldoLead(from, monto) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(LEADS_SHEET);
+  if (!sheet) { sheet = ss.insertSheet(LEADS_SHEET); sheet.appendRow(["whatsapp","nombre","fecha_registro","handicap","notas","saldo"]); }
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (safeString(data[i][0]) === from) {
+    if (_safeString(data[i][0]) === from) {
       const saldoActual = parseFloat(data[i][LEADS_COL_SALDO - 1]) || 0;
       sheet.getRange(i + 1, LEADS_COL_SALDO).setValue(saldoActual + monto);
       Logger.log("Saldo acreditado: " + from + " + $" + monto + " = $" + (saldoActual + monto));
       return;
     }
   }
+  // No había fila para este whatsapp todavía (ej. recargó sin haber quedado
+  // registrado como lead) — la creamos para no perder el crédito. Antes esto
+  // hacía que la recarga se "confirmara" por WhatsApp pero el saldo no se
+  // guardara en ningún lado y quedara en $0.
+  sheet.appendRow([from, "", new Date(), "", "", monto]);
+  Logger.log("Lead creado automaticamente al acreditar saldo: " + from + " = $" + monto);
 }
 
-function formatearSaldo(monto) {
+function _formatearSaldo(monto) {
   return "$ " + Number(monto).toLocaleString("es-CL");
 }
 
 // ============================================
 // HELPERS DE CONVERSACION
 // ============================================
-function esUsuarioConocido(from) {
+function _esUsuarioConocido(from) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
   if (!sheet) return false;
   const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) { if (safeString(data[i][0]) === from) return true; }
+  for (let i = 1; i < data.length; i++) { if (_safeString(data[i][0]) === from) return true; }
   return false;
 }
-function obtenerNombreLead(from) {
+function _obtenerNombreLead(from) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
   if (!sheet) return "";
   const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) { if (safeString(data[i][0]) === from) return safeString(data[i][1]); }
+  for (let i = 1; i < data.length; i++) { if (_safeString(data[i][0]) === from) return _safeString(data[i][1]); }
   return "";
 }
-function obtenerHandicapLead(from) {
+function _obtenerHandicapLead(from) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
   if (!sheet) return "";
   const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) { if (safeString(data[i][0]) === from) return safeString(data[i][3]); }
+  for (let i = 1; i < data.length; i++) { if (_safeString(data[i][0]) === from) return _safeString(data[i][3]); }
   return "";
 }
 
 // ============================================
 // MENU PRINCIPAL
 // ============================================
-function enviarMenuPrincipal(from, nombre) {
-  const saldo = obtenerSaldoLead(from);
-  const saldoStr = formatearSaldo(saldo);
-  enviarMensajeWhatsApp(from,
+function _enviarMenuPrincipal(from, nombre) {
+  const saldo = _obtenerSaldoLead(from);
+  const saldoStr = _formatearSaldo(saldo);
+  _enviarMensajeWhatsApp(from,
     "\u00a1Hola de nuevo *" + nombre + "*! \u26f3\n" +
     "\uD83D\uDCB0 *Saldo disponible: " + saldoStr + " CLP*\n\n" +
     "\u00bfCon qu\u00e9 te puedo ayudar?\n\n" +
     "1\ufe0f\u20e3 *Ejercicio gratis*\n" +
-    "2\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 5.000\n" +
-    "3\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000\n" +
-    "4\ufe0f\u20e3 *Sugerir equipamiento* \uD83D\uDEA7\n" +
-    "5\ufe0f\u20e3 *Actualizar mis datos*\n" +
-    "6\ufe0f\u20e3 *Otras consultas*\n" +
-    "7\ufe0f\u20e3 *Cargar saldo*\n" +
-    "8\ufe0f\u20e3 *\u00cdndice Golfito* \u2014 evalu\u00e1 tu swing \uD83D\uDCCA"
+    "2\ufe0f\u20e3 *\u00cdndice Golfito: califica tu swing gratis*\n" +
+    "3\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 5.000\n" +
+    "4\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000\n" +
+    "5\ufe0f\u20e3 *Sugerir equipamiento* \uD83D\uDEA7\n" +
+    "6\ufe0f\u20e3 *Actualizar mis datos*\n" +
+    "7\ufe0f\u20e3 *Otras consultas*\n" +
+    "8\ufe0f\u20e3 *Cargar saldo*"
   );
 }
 
 // ============================================
 // MOTOR CONVERSACIONAL
 // ============================================
-function procesarMensajeEntrante(from, text) {
+function _procesarMensajeEntrante(from, text) {
   const lock = LockService.getUserLock();
   if (!lock.tryLock(5000)) { Logger.log("Lock no obtenido: " + from); return; }
   try {
-    const conv = obtenerConversacion(from);
+    const conv = _obtenerConversacion(from);
     const paso = conv.paso || "inicio";
     const textLower = text.toLowerCase();
 
     if (textLower === "hola" || textLower === "inicio" || paso === "inicio") {
-      if (esUsuarioConocido(from)) {
-        const nombre = obtenerNombreLead(from);
-        enviarMenuPrincipal(from, nombre);
-        guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
+      if (_esUsuarioConocido(from)) {
+        const nombre = _obtenerNombreLead(from);
+        _enviarMenuPrincipal(from, nombre);
+        _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
       } else {
-        enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\n\u00bfCu\u00e1l es tu nombre?");
-        guardarConversacion(from, { paso: "esperando_nombre", nombre: "", handicap: "", aspecto: "", ejvsplan: "", video_url1: "", video_url2: "" });
+        _enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\n\u00bfCu\u00e1l es tu nombre?");
+        _guardarConversacion(from, { paso: "esperando_nombre", nombre: "", handicap: "", aspecto: "", ejvsplan: "", video_url1: "", video_url2: "" });
       }
       return;
     }
 
     // ── Verificación automática de pago pendiente ──
     if ((paso === "esperando_pago_analisis" || paso === "esperando_pago_plan" || paso === "esperando_pago_recarga") && text !== "menu") {
-      const nombre = conv.nombre || obtenerNombreLead(from);
+      const nombre = conv.nombre || _obtenerNombreLead(from);
 
       if (paso === "esperando_pago_recarga") {
-        enviarMensajeWhatsApp(from, "\u23f3 Verificando tu recarga...");
+        _enviarMensajeWhatsApp(from, "\u23f3 Verificando tu recarga...");
         const externalRef = conv.mp_external_ref || "";
-        const verificacion = verificarPagoAprobado(externalRef);
+        const verificacion = _verificarPagoAprobado(externalRef);
         if (verificacion.ok) {
           const montoRecarga = verificacion.monto || conv.monto_recarga || 0;
-          acreditarSaldoLead(from, montoRecarga);
+          _acreditarSaldoLead(from, montoRecarga);
           try {
             const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
             if (sh) {
               const d = sh.getDataRange().getValues();
               for (let i = d.length - 1; i >= 1; i--) {
-                if (safeString(d[i][COL.WHATSAPP-1]) === from && safeString(d[i][COL.PAGO_STATUS-1]) === "pendiente_recarga") {
+                if (_safeString(d[i][COL.WHATSAPP-1]) === from && _safeString(d[i][COL.PAGO_STATUS-1]) === "pendiente_recarga") {
                   sh.getRange(i+1, COL.PAGO_STATUS).setValue("pagado");
                   sh.getRange(i+1, COL.PAGO_FECHA).setValue(new Date());
                   sh.getRange(i+1, COL.MP_PAYMENT_ID).setValue(String(verificacion.paymentId));
@@ -297,59 +311,93 @@ function procesarMensajeEntrante(from, text) {
               }
             }
           } catch(se) { Logger.log("Error guardando recarga: " + se); }
-          const nuevoSaldo = obtenerSaldoLead(from);
-          enviarMensajeWhatsApp(from, "\u2705 Recarga confirmada " + nombre + ".\n\uD83D\uDCB0 *Saldo actual: " + formatearSaldo(nuevoSaldo) + " CLP*");
-          guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
-          enviarMenuPrincipal(from, nombre);
+          const nuevoSaldo = _obtenerSaldoLead(from);
+          _enviarMensajeWhatsApp(from, "\u2705 Recarga confirmada " + nombre + ".\n\uD83D\uDCB0 *Saldo actual: " + _formatearSaldo(nuevoSaldo) + " CLP*");
+
+          // Retomar lo que el alumno estaba haciendo en vez de mandarlo siempre
+          // al men\u00FA principal \u2014 evita pedirle el video de nuevo si ya lo hab\u00EDa
+          // enviado, o pedirlo reci\u00E9n ahora si la recarga fue antes del video.
+          if (conv.post_recarga === "analisis_pre") {
+            _enviarMensajeWhatsApp(from, "Genial \uD83C\uDFA5 Enviame un video de tu swing _(menos de 7 segundos)_ para analizarlo.");
+            _guardarConversacion(from, { ...conv, paso: "esperando_video_analisis", ejvsplan: "2", video_url1: "", video_url2: "" });
+          } else if (conv.post_recarga === "analisis" && conv.video_url1) {
+            const debitadoA = _debitarSaldoLead(from, COSTO_ANALISIS);
+            if (debitadoA) {
+              _actualizarPagoSesionWallet(from, COSTO_ANALISIS);
+              _enviarMensajeWhatsApp(from, "\u23F3 Analizando tu swing con IA, dame un momento...");
+              const datosAnal2 = { ...conv, paso: "analizando_video" };
+              _guardarConversacion(from, datosAnal2);
+              _procesarAnalisisVideo(from, datosAnal2, false);
+            } else {
+              _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+              _enviarMenuPrincipal(from, nombre);
+            }
+          } else if (conv.post_recarga === "plan" && conv.video_url1) {
+            const debitadoP = _debitarSaldoLead(from, COSTO_PLAN);
+            if (debitadoP) {
+              const datosP = { ...conv, paso: "completo" };
+              _guardarConversacion(from, datosP);
+              _registrarSesion(from, { ...datosP, ejvsplan: "3", pago_wallet: true });
+              const perfilP = { nivel: _mapNivel(conv.handicap||"", _mapAspectoLead(conv.aspecto||"")), aspecto: _mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
+              _notificarNuevoPlan(nombre, from, perfilP, conv.video_url1||"", conv.comentarios_alumno||"");
+              _enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26F3 Estamos preparando tu plan y te lo enviamos pronto por ac\u00E1.");
+            } else {
+              _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+              _enviarMenuPrincipal(from, nombre);
+            }
+          } else {
+            _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+            _enviarMenuPrincipal(from, nombre);
+          }
         } else {
-          enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo la recarga confirmada " + nombre + ". Esper\u00e1 unos minutos e intent\u00e1 de nuevo \u26f3");
-          enviarMenuPrincipal(from, nombre);
-          guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+          _enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo la recarga confirmada " + nombre + ". Esper\u00e1 unos minutos e intent\u00e1 de nuevo \u26f3");
+          _enviarMenuPrincipal(from, nombre);
+          _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
         }
         return;
       }
 
       if (paso === "esperando_pago_analisis") {
-        enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
+        _enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
         const externalRef = conv.mp_external_ref || conv.mp_codigo_plan || "";
-        const verificacion = verificarPagoAprobado(externalRef);
+        const verificacion = _verificarPagoAprobado(externalRef);
         if (verificacion.ok) {
           try {
             const sh2 = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
             if (sh2) {
               const d2 = sh2.getDataRange().getValues();
               for (let i2 = d2.length-1; i2 >= 1; i2--) {
-                if (safeString(d2[i2][COL.WHATSAPP-1]) === from && safeString(d2[i2][COL.PAGO_STATUS-1]) !== "pagado") {
+                if (_safeString(d2[i2][COL.WHATSAPP-1]) === from && _safeString(d2[i2][COL.PAGO_STATUS-1]) !== "pagado") {
                   sh2.getRange(i2+1,COL.PAGO_STATUS).setValue("pagado"); sh2.getRange(i2+1,COL.PAGO_FECHA).setValue(new Date()); sh2.getRange(i2+1,COL.MP_PAYMENT_ID).setValue(String(verificacion.paymentId)); break;
                 }
               }
             }
           } catch(se) { Logger.log("Error guardando pago: " + se); }
-          enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombre + ". Analizando tu swing con IA, dame un momento...");
-          const datosAnal = { ...conv, paso: "analizando_video" }; guardarConversacion(from, datosAnal); procesarAnalisisVideo(from, datosAnal, false);
+          _enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombre + ". Analizando tu swing con IA, dame un momento...");
+          const datosAnal = { ...conv, paso: "analizando_video" }; _guardarConversacion(from, datosAnal); _procesarAnalisisVideo(from, datosAnal, false);
         } else {
-          enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo el pago confirmado " + nombre + ". Esper\u00e1 unos minutos e intent\u00e1 de nuevo \u26f3");
-          guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); enviarMenuPrincipal(from, nombre);
+          _enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo el pago confirmado " + nombre + ". Esper\u00e1 unos minutos e intent\u00e1 de nuevo \u26f3");
+          _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); _enviarMenuPrincipal(from, nombre);
         }
         return;
       }
 
       if (paso === "esperando_pago_plan") {
-        const nombrePlan = conv.nombre || obtenerNombreLead(from);
-        enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
-        const vPlan = verificarPagoAprobado(conv.mp_codigo_plan || "");
+        const nombrePlan = conv.nombre || _obtenerNombreLead(from);
+        _enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
+        const vPlan = _verificarPagoAprobado(conv.mp_codigo_plan || "");
         if (vPlan.ok) {
           try {
             const sh3 = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
-            if (sh3) { const d3 = sh3.getDataRange().getValues(); for (let i3=d3.length-1;i3>=1;i3--) { if (safeString(d3[i3][COL.WHATSAPP-1])===from && safeString(d3[i3][COL.PAGO_STATUS-1])!=="pagado") { sh3.getRange(i3+1,COL.PAGO_STATUS).setValue("pagado"); sh3.getRange(i3+1,COL.PAGO_FECHA).setValue(new Date()); sh3.getRange(i3+1,COL.MP_PAYMENT_ID).setValue(String(vPlan.paymentId)); sh3.getRange(i3+1,COL.STATUS).setValue("pendiente_manual"); break; } } }
+            if (sh3) { const d3 = sh3.getDataRange().getValues(); for (let i3=d3.length-1;i3>=1;i3--) { if (_safeString(d3[i3][COL.WHATSAPP-1])===from && _safeString(d3[i3][COL.PAGO_STATUS-1])!=="pagado") { sh3.getRange(i3+1,COL.PAGO_STATUS).setValue("pagado"); sh3.getRange(i3+1,COL.PAGO_FECHA).setValue(new Date()); sh3.getRange(i3+1,COL.MP_PAYMENT_ID).setValue(String(vPlan.paymentId)); sh3.getRange(i3+1,COL.STATUS).setValue("pendiente_manual"); break; } } }
           } catch(se2) { Logger.log("Error guardando pago plan: " + se2); }
-          enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombrePlan + " \u26f3 Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1.");
-          guardarConversacion(from, { ...conv, paso: "completo" });
-          const perfil = { nivel: mapNivel(conv.handicap||"", mapAspectoLead(conv.aspecto||"")), aspecto: mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
-          notificarNuevoPlan(nombrePlan, from, perfil, conv.video_url1||"", conv.comentarios_alumno||"");
+          _enviarMensajeWhatsApp(from, "\u2705 Pago confirmado " + nombrePlan + " \u26f3 Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1.");
+          _guardarConversacion(from, { ...conv, paso: "completo" });
+          const perfil = { nivel: _mapNivel(conv.handicap||"", _mapAspectoLead(conv.aspecto||"")), aspecto: _mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
+          _notificarNuevoPlan(nombrePlan, from, perfil, conv.video_url1||"", conv.comentarios_alumno||"");
         } else {
-          enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo el pago confirmado " + nombrePlan + ". Esper\u00e1 unos minutos e intent\u00e1 de nuevo \u26f3");
-          guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); enviarMenuPrincipal(from, nombrePlan);
+          _enviarMensajeWhatsApp(from, "\u23f3 Todav\u00eda no veo el pago confirmado " + nombrePlan + ". Esper\u00e1 unos minutos e intent\u00e1 de nuevo \u26f3");
+          _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); _enviarMenuPrincipal(from, nombrePlan);
         }
         return;
       }
@@ -358,232 +406,248 @@ function procesarMensajeEntrante(from, text) {
     if (paso === "completo" || paso === "plan_solicitado" || paso === "esperando_menu_principal") {
       if (paso === "completo") {
         if (text.toUpperCase() === "PLAN") {
-          const nombre = conv.nombre || obtenerNombreLead(from);
-          enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Enviame un video de tu swing \ud83c\udfa5 _(menos de 7 segundos)_\n\n_(Si no ten\u00e9s uno, cualquier otra consulta escribinos \u26f3)_");
-          guardarConversacion(from, { ...conv, paso: "esperando_video_plan", ejvsplan: "3" });
+          const nombre = conv.nombre || _obtenerNombreLead(from);
+          _enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Enviame un video de tu swing \ud83c\udfa5 _(menos de 7 segundos)_\n\n_(Si no ten\u00e9s uno, cualquier otra consulta escribinos \u26f3)_");
+          _guardarConversacion(from, { ...conv, paso: "esperando_video_plan", ejvsplan: "3" });
           return;
         }
-        const nombre = conv.nombre || obtenerNombreLead(from);
-        enviarMenuPrincipal(from, nombre);
-        guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+        const nombre = conv.nombre || _obtenerNombreLead(from);
+        _enviarMenuPrincipal(from, nombre);
+        _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
         return;
       }
 
       const v = text.trim();
-      const nombre = conv.nombre || obtenerNombreLead(from);
+      const nombre = conv.nombre || _obtenerNombreLead(from);
 
       if (v === "1") {
-        const handicap = conv.handicap || obtenerHandicapLead(from);
+        const handicap = conv.handicap || _obtenerHandicapLead(from);
         if (conv.aspecto) {
-          enviarMensajeWhatsApp(from, "Perfecto \u26f3 Estoy preparando tu ejercicio...");
+          _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Estoy preparando tu ejercicio...");
           const datos = { ...conv, paso: "completo", ejvsplan: "1", nombre, handicap };
-          guardarConversacion(from, datos); registrarSesion(from, datos);
+          _guardarConversacion(from, datos); _registrarSesion(from, datos);
         } else {
-          enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 aspecto quer\u00e9s trabajar?\n\n1\ufe0f\u20e3 Driver\n2\ufe0f\u20e3 Hierros\n3\ufe0f\u20e3 Approach\n4\ufe0f\u20e3 Putting\n5\ufe0f\u20e3 Bunker\n6\ufe0f\u20e3 Primera vez en el golf");
-          guardarConversacion(from, { ...conv, paso: "esperando_aspecto_menu", ejvsplan: "1", nombre, handicap });
+          _enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 aspecto quer\u00e9s trabajar?\n\n1\ufe0f\u20e3 Driver\n2\ufe0f\u20e3 Hierros\n3\ufe0f\u20e3 Approach\n4\ufe0f\u20e3 Putting\n5\ufe0f\u20e3 Bunker\n6\ufe0f\u20e3 Primera vez en el golf");
+          _guardarConversacion(from, { ...conv, paso: "esperando_aspecto_menu", ejvsplan: "1", nombre, handicap });
         }
       } else if (v === "2") {
-        enviarMensajeWhatsApp(from, "Genial \ud83c\udfa5 Enviame un video de tu swing _(menos de 7 segundos)_ para analizarlo.");
-        guardarConversacion(from, { ...conv, paso: "esperando_video_analisis", ejvsplan: "2", nombre, video_url1: "", video_url2: "" });
+        _enviarMensajeWhatsApp(from, "\uD83D\uDCCA *\u00cdndice Golfito: califica tu swing gratis*\n\nEnviam\u00e9 un video de tu swing _(menos de 7 segundos)_ y evaluo tus 7 dimensiones t\u00e9cnicas con un score del 1 al 100 \uD83C\uDFCC\uFE0F");
+        _guardarConversacion(from, { ...conv, paso: "esperando_video_indice", ejvsplan: "indice", nombre, video_url1: "" });
       } else if (v === "3") {
-        const vids = obtenerUltimosVideosSesion(from);
-        if (vids.url1 || vids.url2) {
-          const cuantos = (vids.url1 && vids.url2) ? "dos videos" : "un video";
-          enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Veo que ya enviaste " + cuantos + " anteriormente.\n\n\u00bfUsamos esos para armar tu plan, o quer\u00e9s enviar nuevos?\n\n1\ufe0f\u20e3 Usar los videos que ya envi\u00e9\n2\ufe0f\u20e3 Enviar videos nuevos");
-          guardarConversacion(from, { ...conv, paso: "esperando_reusar_videos", ejvsplan: "3", nombre, video_url1_prev: vids.url1, video_url2_prev: vids.url2 });
+        if (MODO_TEST_ANALISIS || _obtenerSaldoLead(from) >= COSTO_ANALISIS) {
+          _enviarMensajeWhatsApp(from, "Genial \ud83c\udfa5 Enviame un video de tu swing _(menos de 7 segundos)_ para analizarlo.");
+          _guardarConversacion(from, { ...conv, paso: "esperando_video_analisis", ejvsplan: "2", nombre, video_url1: "", video_url2: "" });
         } else {
-          enviarMensajeWhatsApp(from, "Perfecto \u26f3 Para armar tu plan necesito videos de tu swing \ud83c\udfa5\n\nEnviame un video *de perfil* _(c\u00e1mara detr\u00e1s tuyo, menos de 7 segundos)_");
-          guardarConversacion(from, { ...conv, paso: "esperando_video_plan_1", ejvsplan: "3", nombre, video_url1: "", video_url2: "" });
+          _ofrecerRecargaAnalisisPrevia(from, nombre, { ...conv, nombre });
         }
       } else if (v === "4") {
-        enviarMensajeWhatsApp(from,
+        const vids = _obtenerUltimosVideosSesion(from);
+        if (vids.url1 || vids.url2) {
+          const cuantos = (vids.url1 && vids.url2) ? "dos videos" : "un video";
+          _enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Veo que ya enviaste " + cuantos + " anteriormente.\n\n\u00bfUsamos esos para armar tu plan, o quer\u00e9s enviar nuevos?\n\n1\ufe0f\u20e3 Usar los videos que ya envi\u00e9\n2\ufe0f\u20e3 Enviar videos nuevos");
+          _guardarConversacion(from, { ...conv, paso: "esperando_reusar_videos", ejvsplan: "3", nombre, video_url1_prev: vids.url1, video_url2_prev: vids.url2 });
+        } else {
+          _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Para armar tu plan necesito videos de tu swing \ud83c\udfa5\n\nEnviame un video *de perfil* _(c\u00e1mara detr\u00e1s tuyo, menos de 7 segundos)_");
+          _guardarConversacion(from, { ...conv, paso: "esperando_video_plan_1", ejvsplan: "3", nombre, video_url1: "", video_url2: "" });
+        }
+      } else if (v === "5") {
+        _enviarMensajeWhatsApp(from,
           "\uD83C\uDFCC\uFE0F *Equipamiento para entrenar* \uD83D\uDEA7\n\n" +
           "Esta sección está en construcción. Próximamente te vamos a compartir recomendaciones de equipamiento para mejorar tu entrenamiento.\n\n" +
           "Cualquier consulta escribinos \u26f3"
         );
-        guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
-        enviarMenuPrincipal(from, nombre);
-      } else if (v === "5") {
-        enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s actualizar?\n\n1\ufe0f\u20e3 Mi nombre\n2\ufe0f\u20e3 Mi handicap");
-        guardarConversacion(from, { ...conv, paso: "esperando_actualizar_datos" });
+        _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+        _enviarMenuPrincipal(from, nombre);
       } else if (v === "6") {
-        enviarMensajeWhatsApp(from, "\u00a1Claro! Escrib\u00ed tu consulta o comentario y te respondemos a la brevedad \ud83d\udcdd");
-        guardarConversacion(from, { ...conv, paso: "esperando_consulta" });
+        _enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s actualizar?\n\n1\ufe0f\u20e3 Mi nombre\n2\ufe0f\u20e3 Mi handicap");
+        _guardarConversacion(from, { ...conv, paso: "esperando_actualizar_datos" });
       } else if (v === "7") {
-        enviarMensajeWhatsApp(from, "\uD83D\uDCB0 *Cargar saldo*\n\n\u00bfCu\u00e1nto quer\u00e9s cargar a tu billetera Golfito? Escrib\u00ed el monto en pesos chilenos (solo el n\u00famero, sin puntos ni s\u00edmbolos).\n\nEj: *10000*");
-        guardarConversacion(from, { ...conv, paso: "esperando_monto_recarga" });
+        _enviarMensajeWhatsApp(from, "\u00a1Claro! Escrib\u00ed tu consulta o comentario y te respondemos a la brevedad \ud83d\udcdd");
+        _guardarConversacion(from, { ...conv, paso: "esperando_consulta" });
       } else if (v === "8") {
-        enviarMensajeWhatsApp(from, "\uD83D\uDCCA *\u00cdndice Golfito*\n\nEnviam\u00e9 un video de tu swing _(menos de 7 segundos)_ y evaluo tus 7 dimensiones t\u00e9cnicas con un score del 1 al 100 \uD83C\uDFCC\uFE0F");
-        guardarConversacion(from, { ...conv, paso: "esperando_video_indice", ejvsplan: "indice", nombre, video_url1: "" });
+        _enviarMensajeWhatsApp(from, "\uD83D\uDCB0 *Cargar saldo*\n\n\u00bfCu\u00e1nto quer\u00e9s cargar a tu billetera Golfito? Escrib\u00ed el monto en pesos chilenos (solo el n\u00famero, sin puntos ni s\u00edmbolos).\n\nEj: *10000*");
+        _guardarConversacion(from, { ...conv, paso: "esperando_monto_recarga" });
       } else {
-        enviarMenuPrincipal(from, nombre);
+        _enviarMenuPrincipal(from, nombre);
       }
       return;
     }
 
     if (paso === "esperando_monto_recarga") {
-      const nombre = conv.nombre || obtenerNombreLead(from);
+      const nombre = conv.nombre || _obtenerNombreLead(from);
       const montoStr = text.replace(/\./g,"").replace(/,/g,"").trim();
       const monto = parseInt(montoStr, 10);
       if (isNaN(monto) || monto < 1000) {
-        enviarMensajeWhatsApp(from, "El monto m\u00ednimo es $1.000. Ingres\u00e1 un n\u00famero v\u00e1lido:");
+        _enviarMensajeWhatsApp(from, "El monto m\u00ednimo es $1.000. Ingres\u00e1 un n\u00famero v\u00e1lido:");
         return;
       }
       const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
-      const mpRes = crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, monto);
+      const mpRes = _crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, monto);
       if (mpRes.ok) {
-        enviarMensajeWhatsApp(from, "Perfecto \u26f3 Para cargar *" + formatearSaldo(monto) + " CLP* a tu billetera, realiz\u00e1 el pago ac\u00e1:\n" + mpRes.link + "\n\nUna vez que pagues, escribinos ac\u00e1 y acreditamos el saldo \uD83D\uDCB0");
-        guardarConversacion(from, { ...conv, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: monto });
-        registrarSesionRecarga(from, conv, monto, mpRes.externalRef);
+        _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Para cargar *" + _formatearSaldo(monto) + " CLP* a tu billetera, realiz\u00e1 el pago ac\u00e1:\n" + mpRes.link + "\n\nUna vez que pagues, escribinos ac\u00e1 y acreditamos el saldo \uD83D\uDCB0");
+        _guardarConversacion(from, { ...conv, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: monto });
+        _registrarSesionRecarga(from, conv, monto, mpRes.externalRef);
       } else {
-        enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
-        enviarMenuPrincipal(from, nombre);
-        guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+        _enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
+        _enviarMenuPrincipal(from, nombre);
+        _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
       }
       return;
     }
 
     if (paso === "esperando_aspecto_menu") {
-      enviarMensajeWhatsApp(from, "Perfecto \u26f3 Estoy preparando tu ejercicio...");
+      _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Estoy preparando tu ejercicio...");
       const datos = { ...conv, paso: "completo", aspecto: text };
-      guardarConversacion(from, datos); registrarSesion(from, datos); return;
+      _guardarConversacion(from, datos); _registrarSesion(from, datos); return;
     }
 
     if (paso === "esperando_actualizar_datos") {
       if (text === "1") {
-        enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu nombre?");
-        guardarConversacion(from, { ...conv, paso: "actualizando_nombre" });
+        _enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu nombre?");
+        _guardarConversacion(from, { ...conv, paso: "actualizando_nombre" });
       } else if (text === "2") {
-        enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu handicap actual?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
-        guardarConversacion(from, { ...conv, paso: "actualizando_handicap" });
+        _enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu handicap actual?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
+        _guardarConversacion(from, { ...conv, paso: "actualizando_handicap" });
       } else {
-        enviarMensajeWhatsApp(from, "Respond\u00e9 1 para nombre o 2 para handicap.");
+        _enviarMensajeWhatsApp(from, "Respond\u00e9 1 para nombre o 2 para handicap.");
       }
       return;
     }
     if (paso === "actualizando_nombre") {
-      const nombre = sanitizarNombre(text);
+      const nombre = _sanitizarNombre(text);
       const ss = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
-      if (ss) { const data = ss.getDataRange().getValues(); for (let i=1;i<data.length;i++) { if (safeString(data[i][0])===from) { ss.getRange(i+1,2).setValue(nombre); break; } } }
-      enviarMensajeWhatsApp(from, "\u2705 Nombre actualizado a *" + nombre + "*.\n\nCualquier otra consulta escribinos \u26f3");
-      enviarMenuPrincipal(from, nombre); guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre }); return;
+      if (ss) { const data = ss.getDataRange().getValues(); for (let i=1;i<data.length;i++) { if (_safeString(data[i][0])===from) { ss.getRange(i+1,2).setValue(nombre); break; } } }
+      _enviarMensajeWhatsApp(from, "\u2705 Nombre actualizado a *" + nombre + "*.\n\nCualquier otra consulta escribinos \u26f3");
+      _enviarMenuPrincipal(from, nombre); _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre }); return;
     }
     if (paso === "actualizando_handicap") {
-      actualizarHandicapLead(from, text);
-      const nombre = conv.nombre || obtenerNombreLead(from);
-      enviarMensajeWhatsApp(from, "\u2705 Handicap actualizado a *" + text + "*.\n\nCualquier otra consulta escribinos \u26f3");
-      enviarMenuPrincipal(from, nombre); guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", handicap: text }); return;
+      _actualizarHandicapLead(from, text);
+      const nombre = conv.nombre || _obtenerNombreLead(from);
+      _enviarMensajeWhatsApp(from, "\u2705 Handicap actualizado a *" + text + "*.\n\nCualquier otra consulta escribinos \u26f3");
+      _enviarMenuPrincipal(from, nombre); _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", handicap: text }); return;
     }
     if (paso === "esperando_consulta") {
-      guardarConsulta(from, conv.nombre || obtenerNombreLead(from), text);
-      enviarMensajeWhatsApp(from, "\u00a1Gracias por tu consulta! Te respondemos a la brevedad \u26f3");
-      guardarConversacion(from, { ...conv, paso: "completo" }); return;
+      _guardarConsulta(from, conv.nombre || _obtenerNombreLead(from), text);
+      _enviarMensajeWhatsApp(from, "\u00a1Gracias por tu consulta! Te respondemos a la brevedad \u26f3");
+      _guardarConversacion(from, { ...conv, paso: "completo" }); return;
     }
     if (paso === "esperando_nombre") {
-      const nombre = sanitizarNombre(text);
-      enviarMensajeWhatsApp(from, "Hola *" + nombre + "* \ud83d\udc4b\n\n\u00bfCu\u00e1l es tu handicap?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
-      guardarConversacion(from, { ...conv, paso: "esperando_handicap", nombre }); return;
+      const nombre = _sanitizarNombre(text);
+      _enviarMensajeWhatsApp(from, "Hola *" + nombre + "* \ud83d\udc4b\n\n\u00bfCu\u00e1l es tu handicap?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
+      _guardarConversacion(from, { ...conv, paso: "esperando_handicap", nombre }); return;
     }
     if (paso === "esperando_handicap") {
-      enviarMenuPrincipal(from, conv.nombre);
-      guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", handicap: text }); return;
+      // Capturar el lead acá mismo (no esperar a que termine una sesión) — si no,
+      // alguien que da nombre/handicap y no llega a pedir nada queda sin registrar
+      // en Leads, y cualquier recarga de saldo posterior no tiene fila donde guardarse.
+      _registrarOActualizarLead(from, conv.nombre, text);
+      _enviarMenuPrincipal(from, conv.nombre);
+      _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", handicap: text }); return;
     }
     if (paso === "esperando_aspecto") {
-      enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s hacer?\n\n1\ufe0f\u20e3 *Ejercicio gratis* \u2014 te mando uno ahora\n2\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 5.000\n3\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000");
-      guardarConversacion(from, { ...conv, paso: "esperando_ejvsplan", aspecto: text }); return;
+      _enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s hacer?\n\n1\ufe0f\u20e3 *Ejercicio gratis* \u2014 te mando uno ahora\n2\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 5.000\n3\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000");
+      _guardarConversacion(from, { ...conv, paso: "esperando_ejvsplan", aspecto: text }); return;
     }
     if (paso === "esperando_ejvsplan") {
-      const tipo = mapTipoSolicitud(text);
-      if (tipo === "ejercicio_gratis") { enviarMensajeWhatsApp(from, "Perfecto \u26f3 Estoy preparando tu ejercicio..."); const datos = { ...conv, paso: "completo", ejvsplan: "1" }; guardarConversacion(from, datos); registrarSesion(from, datos); }
-      else if (tipo === "analisis_video") { enviarMensajeWhatsApp(from, "Genial \ud83c\udfa5 Enviame un video de tu swing _(menos de 7 segundos)_ para analizarlo."); guardarConversacion(from, { ...conv, paso: "esperando_video_analisis", ejvsplan: "2", video_url1: "", video_url2: "" }); }
-      else if (tipo === "plan_personalizado") { enviarMensajeWhatsApp(from, "Perfecto \u26f3 Enviame un video de tu swing \ud83c\udfa5 _(menos de 7 segundos)_\n\n_(Si no ten\u00e9s uno a mano, cualquier otra consulta escribinos \u26f3)_"); guardarConversacion(from, { ...conv, paso: "esperando_video_plan", ejvsplan: "3" }); }
+      const tipo = _mapTipoSolicitud(text);
+      if (tipo === "ejercicio_gratis") { _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Estoy preparando tu ejercicio..."); const datos = { ...conv, paso: "completo", ejvsplan: "1" }; _guardarConversacion(from, datos); _registrarSesion(from, datos); }
+      else if (tipo === "analisis_video") {
+        const nombreEj2 = conv.nombre || _obtenerNombreLead(from);
+        if (MODO_TEST_ANALISIS || _obtenerSaldoLead(from) >= COSTO_ANALISIS) {
+          _enviarMensajeWhatsApp(from, "Genial \ud83c\udfa5 Enviame un video de tu swing _(menos de 7 segundos)_ para analizarlo.");
+          _guardarConversacion(from, { ...conv, paso: "esperando_video_analisis", ejvsplan: "2", video_url1: "", video_url2: "" });
+        } else {
+          _ofrecerRecargaAnalisisPrevia(from, nombreEj2, conv);
+        }
+      }
+      else if (tipo === "plan_personalizado") { _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Enviame un video de tu swing \ud83c\udfa5 _(menos de 7 segundos)_\n\n_(Si no ten\u00e9s uno a mano, cualquier otra consulta escribinos \u26f3)_"); _guardarConversacion(from, { ...conv, paso: "esperando_video_plan", ejvsplan: "3" }); }
       return;
     }
-    if (paso === "esperando_video_indice") { enviarMensajeWhatsApp(from, "Para enviar el video us\u00e1 el clip \ud83d\udcce de WhatsApp _(menos de 7 segundos)_."); return; }
+    if (paso === "esperando_video_indice") { _enviarMensajeWhatsApp(from, "Para enviar el video us\u00e1 el clip \ud83d\udcce de WhatsApp _(menos de 7 segundos)_."); return; }
 
-    if (paso === "esperando_video_analisis") { enviarMensajeWhatsApp(from, "Para enviar el video us\u00e1 el clip \ud83d\udcce de WhatsApp."); return; }
+    if (paso === "esperando_video_analisis") { _enviarMensajeWhatsApp(from, "Para enviar el video us\u00e1 el clip \ud83d\udcce de WhatsApp."); return; }
 
     // ── Contexto pre-análisis (opcional) ──
     if (paso === "esperando_contexto_video") {
-      const nombre = conv.nombre || obtenerNombreLead(from);
+      const nombre = conv.nombre || _obtenerNombreLead(from);
       const contexto = (textLower === "omitir" || textLower === "saltar" || text.trim() === "") ? "" : text.trim();
       const datosConContexto = { ...conv, paso: "analizando_video", contexto_analisis: contexto };
-      guardarConversacion(from, datosConContexto);
+      _guardarConversacion(from, datosConContexto);
       if (MODO_TEST_ANALISIS) {
-        enviarMensajeWhatsApp(from, "\u23f3 Recib\u00ed tu video " + nombre + ". Analizando tu swing con IA, dame un momento...");
-        procesarAnalisisVideo(from, datosConContexto, false);
+        _enviarMensajeWhatsApp(from, "\u23f3 Recib\u00ed tu video " + nombre + ". Analizando tu swing con IA, dame un momento...");
+        _procesarAnalisisVideo(from, datosConContexto, false);
       } else {
         // Chequear saldo
-        const saldo = obtenerSaldoLead(from);
+        const saldo = _obtenerSaldoLead(from);
         if (saldo >= COSTO_ANALISIS) {
-          const debitado = debitarSaldoLead(from, COSTO_ANALISIS);
+          const debitado = _debitarSaldoLead(from, COSTO_ANALISIS);
           if (debitado) {
-            actualizarPagoSesionWallet(from, COSTO_ANALISIS);
-            enviarMensajeWhatsApp(from, "\u2705 Se debitaron *" + formatearSaldo(COSTO_ANALISIS) + " CLP* de tu saldo.\n\n\u23f3 Analizando tu swing con IA, dame un momento...");
-            procesarAnalisisVideo(from, datosConContexto, false);
+            _actualizarPagoSesionWallet(from, COSTO_ANALISIS);
+            _enviarMensajeWhatsApp(from, "\u2705 Se debitaron *" + _formatearSaldo(COSTO_ANALISIS) + " CLP* de tu saldo.\n\n\u23f3 Analizando tu swing con IA, dame un momento...");
+            _procesarAnalisisVideo(from, datosConContexto, false);
           } else {
-            ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto);
+            _ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto);
           }
         } else {
-          ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto);
+          _ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto);
         }
       }
       return;
     }
 
     if (paso === "esperando_segundo_video") {
-      const nombre = conv.nombre || obtenerNombreLead(from);
-      guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); enviarMenuPrincipal(from, nombre); return;
+      const nombre = conv.nombre || _obtenerNombreLead(from);
+      _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); _enviarMenuPrincipal(from, nombre); return;
     }
     if (paso === "esperando_reusar_videos") {
       if (text === "1") {
         const url1 = conv.video_url1_prev || ""; const url2 = conv.video_url2_prev || "";
-        if (url1 && url2) { enviarMensajeWhatsApp(from, "Perfecto \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_"); guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: url1, video_url2: url2 }); }
-        else { const tieneUrl1 = !!url1; enviarMensajeWhatsApp(from, "Genial, uso el video que ya enviaste \u2705\n\nPara un an\u00e1lisis m\u00e1s completo, \u00bfme envi\u00e1s un video desde el " + (tieneUrl1 ? "frente" : "costado trasero") + "? _(menos de 7 segundos)_\n\nSi no ten\u00e9s, escrib\u00ed *saltar*"); guardarConversacion(from, { ...conv, paso: "esperando_video_plan_complementario", video_url1: url1||"", video_url2: url2||"" }); }
-      } else if (text === "2") { enviarMensajeWhatsApp(from, "Buen\u00edsimo \u26f3 Enviame el primer video de tu swing \ud83c\udfa5\n_(c\u00e1mara trasera \u2014 detr\u00e1s tuyo, menos de 7 segundos)_"); guardarConversacion(from, { ...conv, paso: "esperando_video_plan_1", video_url1: "", video_url2: "" }); }
-      else { enviarMensajeWhatsApp(from, "Respond\u00e9 *1* para usar los videos anteriores o *2* para enviar nuevos."); }
+        if (url1 && url2) { _enviarMensajeWhatsApp(from, "Perfecto \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_"); _guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: url1, video_url2: url2 }); }
+        else { const tieneUrl1 = !!url1; _enviarMensajeWhatsApp(from, "Genial, uso el video que ya enviaste \u2705\n\nPara un an\u00e1lisis m\u00e1s completo, \u00bfme envi\u00e1s un video desde el " + (tieneUrl1 ? "frente" : "costado trasero") + "? _(menos de 7 segundos)_\n\nSi no ten\u00e9s, escrib\u00ed *saltar*"); _guardarConversacion(from, { ...conv, paso: "esperando_video_plan_complementario", video_url1: url1||"", video_url2: url2||"" }); }
+      } else if (text === "2") { _enviarMensajeWhatsApp(from, "Buen\u00edsimo \u26f3 Enviame el primer video de tu swing \ud83c\udfa5\n_(c\u00e1mara trasera \u2014 detr\u00e1s tuyo, menos de 7 segundos)_"); _guardarConversacion(from, { ...conv, paso: "esperando_video_plan_1", video_url1: "", video_url2: "" }); }
+      else { _enviarMensajeWhatsApp(from, "Respond\u00e9 *1* para usar los videos anteriores o *2* para enviar nuevos."); }
       return;
     }
     if (paso === "esperando_video_plan_complementario") {
-      if (textLower === "saltar") { enviarMensajeWhatsApp(from, "Ok \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_"); guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno" }); }
-      else { enviarMensajeWhatsApp(from, "Enviam\u00e9 el video usando el clip \ud83d\udcce de WhatsApp _(menos de 7 segundos)_, o escrib\u00ed *saltar* para continuar sin \u00e9l."); }
+      if (textLower === "saltar") { _enviarMensajeWhatsApp(from, "Ok \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_"); _guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno" }); }
+      else { _enviarMensajeWhatsApp(from, "Enviam\u00e9 el video usando el clip \ud83d\udcce de WhatsApp _(menos de 7 segundos)_, o escrib\u00ed *saltar* para continuar sin \u00e9l."); }
       return;
     }
-    if (paso === "esperando_video_plan_1") { enviarMensajeWhatsApp(from, "Enviam\u00e9 el video usando el clip \ud83d\udcce de WhatsApp _(menos de 7 segundos)_."); return; }
+    if (paso === "esperando_video_plan_1") { _enviarMensajeWhatsApp(from, "Enviam\u00e9 el video usando el clip \ud83d\udcce de WhatsApp _(menos de 7 segundos)_."); return; }
     if (paso === "esperando_video_plan_2") {
-      if (textLower === "saltar") { enviarMensajeWhatsApp(from, "Ok \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_"); guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno" }); }
-      else { enviarMensajeWhatsApp(from, "Enviam\u00e9 el segundo video usando el clip \ud83d\udcce _(menos de 7 segundos)_, o escrib\u00ed *saltar* para continuar."); }
+      if (textLower === "saltar") { _enviarMensajeWhatsApp(from, "Ok \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_"); _guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno" }); }
+      else { _enviarMensajeWhatsApp(from, "Enviam\u00e9 el segundo video usando el clip \ud83d\udcce _(menos de 7 segundos)_, o escrib\u00ed *saltar* para continuar."); }
       return;
     }
 
     if (paso === "esperando_comentarios_alumno") {
       const comentarios = textLower === "saltar" ? "" : text.trim();
-      const nombre = conv.nombre || obtenerNombreLead(from);
+      const nombre = conv.nombre || _obtenerNombreLead(from);
       if (MODO_TEST_PLAN) {
         Logger.log("MODO_TEST_PLAN activo — saltando pago en esperando_comentarios_alumno");
         const datos = { ...conv, paso: "completo", comentarios_alumno: comentarios };
-        guardarConversacion(from, datos);
-        registrarSesion(from, datos);
-        const perfil = { nivel: mapNivel(conv.handicap||"", mapAspectoLead(conv.aspecto||"")), aspecto: mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
-        notificarNuevoPlan(nombre, from, perfil, conv.video_url1||"", comentarios);
-        enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Estamos preparando tu plan y te lo enviamos pronto por ac\u00e1.");
+        _guardarConversacion(from, datos);
+        _registrarSesion(from, datos);
+        const perfil = { nivel: _mapNivel(conv.handicap||"", _mapAspectoLead(conv.aspecto||"")), aspecto: _mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
+        _notificarNuevoPlan(nombre, from, perfil, conv.video_url1||"", comentarios);
+        _enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Estamos preparando tu plan y te lo enviamos pronto por ac\u00e1.");
       } else {
         // Chequear saldo para plan
-        const saldo = obtenerSaldoLead(from);
+        const saldo = _obtenerSaldoLead(from);
         if (saldo >= COSTO_PLAN) {
-          const debitado = debitarSaldoLead(from, COSTO_PLAN);
+          const debitado = _debitarSaldoLead(from, COSTO_PLAN);
           if (debitado) {
             const datos = { ...conv, paso: "completo", comentarios_alumno: comentarios };
-            guardarConversacion(from, datos);
-            registrarSesion(from, { ...datos, ejvsplan: "3", pago_wallet: true });
-            const perfil = { nivel: mapNivel(conv.handicap||"", mapAspectoLead(conv.aspecto||"")), aspecto: mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
-            notificarNuevoPlan(nombre, from, perfil, conv.video_url1||"", comentarios);
-            enviarMensajeWhatsApp(from, "\u2705 Se debitaron *" + formatearSaldo(COSTO_PLAN) + " CLP* de tu saldo.\n\nPerfecto " + nombre + " \u26f3 Estamos preparando tu plan y te lo enviamos pronto por ac\u00e1.");
+            _guardarConversacion(from, datos);
+            _registrarSesion(from, { ...datos, ejvsplan: "3", pago_wallet: true });
+            const perfil = { nivel: _mapNivel(conv.handicap||"", _mapAspectoLead(conv.aspecto||"")), aspecto: _mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
+            _notificarNuevoPlan(nombre, from, perfil, conv.video_url1||"", comentarios);
+            _enviarMensajeWhatsApp(from, "\u2705 Se debitaron *" + _formatearSaldo(COSTO_PLAN) + " CLP* de tu saldo.\n\nPerfecto " + nombre + " \u26f3 Estamos preparando tu plan y te lo enviamos pronto por ac\u00e1.");
           } else {
-            ofrecerRecargaPlan(from, nombre, conv, comentarios);
+            _ofrecerRecargaPlan(from, nombre, conv, comentarios);
           }
         } else {
-          ofrecerRecargaPlan(from, nombre, conv, comentarios);
+          _ofrecerRecargaPlan(from, nombre, conv, comentarios);
         }
       }
       return;
@@ -591,45 +655,45 @@ function procesarMensajeEntrante(from, text) {
 
     if (paso === "esperando_video_plan") {
       if (textLower === "saltar") {
-        if (MODO_TEST_PLAN) { enviarMensajeWhatsApp(from, "Ok \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_"); guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: "" }); }
+        if (MODO_TEST_PLAN) { _enviarMensajeWhatsApp(from, "Ok \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_"); _guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: "" }); }
         else {
-          const nombre = conv.nombre || obtenerNombreLead(from);
-          const saldo = obtenerSaldoLead(from);
+          const nombre = conv.nombre || _obtenerNombreLead(from);
+          const saldo = _obtenerSaldoLead(from);
           if (saldo >= COSTO_PLAN) {
-            enviarMensajeWhatsApp(from, "Ok \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
-            guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: "" });
+            _enviarMensajeWhatsApp(from, "Ok \u26f3 \u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
+            _guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: "" });
           } else {
-            const cod = safeString(obtenerCodigoPlanPendiente(from)) || generarCodigoPlan();
-            const mpR = crearPreferenciaPago(from, nombre, "plan", cod, COSTO_PLAN);
+            const cod = _safeString(_obtenerCodigoPlanPendiente(from)) || _generarCodigoPlan();
+            const mpR = _crearPreferenciaPago(from, nombre, "plan", cod, COSTO_PLAN);
             const lnk = mpR.ok ? mpR.link : "https://mpago.la/TU-LINK-PLAN";
-            enviarMensajeWhatsApp(from, "Para continuar, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + lnk + "\n\nCualquier otra consulta escribinos \u26f3");
-            guardarConversacion(from, { ...conv, paso: "esperando_pago_plan", mp_codigo_plan: cod });
+            _enviarMensajeWhatsApp(from, "Para continuar, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + lnk + "\n\nCualquier otra consulta escribinos \u26f3");
+            _guardarConversacion(from, { ...conv, paso: "esperando_pago_plan", mp_codigo_plan: cod });
           }
         }
-      } else { enviarMensajeWhatsApp(from, "Para enviar el video us\u00e1 el clip \ud83d\udcce de WhatsApp _(menos de 7 segundos)_, o cualquier otra consulta escribinos \u26f3"); }
+      } else { _enviarMensajeWhatsApp(from, "Para enviar el video us\u00e1 el clip \ud83d\udcce de WhatsApp _(menos de 7 segundos)_, o cualquier otra consulta escribinos \u26f3"); }
       return;
     }
 
     if (paso === "esperando_feedback") {
       const score = parseInt(text.trim(), 10);
       if (!isNaN(score) && score >= 1 && score <= 5) {
-        guardarFeedbackScore(from, score);
-        enviarMensajeWhatsApp(from, "\u00a1Gracias " + (conv.nombre||"") + "! \ud83d\ude4f\n\n\u00bfTen\u00e9s alg\u00fan comentario o sugerencia para nosotros? \u26f3 _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
-        guardarConversacion(from, { ...conv, paso: "esperando_comentario_feedback", feedback_score: score });
-      } else { enviarMensajeWhatsApp(from, "Por favor respond\u00e9 con un n\u00famero del 1 al 5."); }
+        _guardarFeedbackScore(from, score);
+        _enviarMensajeWhatsApp(from, "\u00a1Gracias " + (conv.nombre||"") + "! \ud83d\ude4f\n\n\u00bfTen\u00e9s alg\u00fan comentario o sugerencia para nosotros? \u26f3 _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
+        _guardarConversacion(from, { ...conv, paso: "esperando_comentario_feedback", feedback_score: score });
+      } else { _enviarMensajeWhatsApp(from, "Por favor respond\u00e9 con un n\u00famero del 1 al 5."); }
       return;
     }
     if (paso === "esperando_comentario_feedback") {
       const comentario = text.toLowerCase() === "saltar" ? "" : text.trim();
-      if (comentario) guardarFeedback(from, comentario);
-      enviarMensajeWhatsApp(from, "Muchas gracias " + (conv.nombre||"") + " \ud83d\ude4f Tu opini\u00f3n nos ayuda a mejorar \u26f3");
-      guardarConversacion(from, { ...conv, paso: "completo" });
+      if (comentario) _guardarFeedback(from, comentario);
+      _enviarMensajeWhatsApp(from, "Muchas gracias " + (conv.nombre||"") + " \ud83d\ude4f Tu opini\u00f3n nos ayuda a mejorar \u26f3");
+      _guardarConversacion(from, { ...conv, paso: "completo" });
       return;
     }
 
-    const nombreFallback = conv.nombre || obtenerNombreLead(from);
-    if (nombreFallback) { enviarMenuPrincipal(from, nombreFallback); guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); }
-    else { enviarMensajeWhatsApp(from, "Cualquier otra consulta escribinos \u26f3"); }
+    const nombreFallback = conv.nombre || _obtenerNombreLead(from);
+    if (nombreFallback) { _enviarMenuPrincipal(from, nombreFallback); _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" }); }
+    else { _enviarMensajeWhatsApp(from, "Cualquier otra consulta escribinos \u26f3"); }
 
   } finally { lock.releaseLock(); }
 }
@@ -637,83 +701,107 @@ function procesarMensajeEntrante(from, text) {
 // ============================================
 // HELPERS WALLET — OFRECER RECARGA
 // ============================================
-function ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto) {
-  const saldo = obtenerSaldoLead(from);
+function _ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto) {
+  const saldo = _obtenerSaldoLead(from);
   const falta = COSTO_ANALISIS - saldo;
   const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
-  const mpRes = crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, falta);
+  const mpRes = _crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, falta);
   if (mpRes.ok) {
-    enviarMensajeWhatsApp(from,
-      "\uD83D\uDCB0 Tu saldo actual es *" + formatearSaldo(saldo) + " CLP*.\n\n" +
-      "Para analizar tu swing necesit\u00e1s *" + formatearSaldo(COSTO_ANALISIS) + " CLP*.\n\n" +
-      "Recarg\u00e1 *" + formatearSaldo(falta) + " CLP* ac\u00e1 para continuar:\n" + mpRes.link + "\n\n" +
+    _enviarMensajeWhatsApp(from,
+      "\uD83D\uDCB0 Tu saldo actual es *" + _formatearSaldo(saldo) + " CLP*.\n\n" +
+      "Para analizar tu swing necesit\u00e1s *" + _formatearSaldo(COSTO_ANALISIS) + " CLP*.\n\n" +
+      "Recarg\u00e1 *" + _formatearSaldo(falta) + " CLP* ac\u00e1 para continuar:\n" + mpRes.link + "\n\n" +
       "Una vez que pagues, escribinos ac\u00e1 \u26f3"
     );
-    guardarConversacion(from, { ...datosConContexto, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: falta, post_recarga: "analisis" });
-    registrarSesionRecarga(from, conv, falta, mpRes.externalRef);
+    _guardarConversacion(from, { ...datosConContexto, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: falta, post_recarga: "analisis" });
+    _registrarSesionRecarga(from, conv, falta, mpRes.externalRef);
   } else {
     // Fallback: link MP directo por el análisis
     const codigoAnal = "ANAL-" + String(Date.now()).slice(-6);
-    const mpResAnal = crearPreferenciaPago(from, nombre, "analisis", codigoAnal, COSTO_ANALISIS);
+    const mpResAnal = _crearPreferenciaPago(from, nombre, "analisis", codigoAnal, COSTO_ANALISIS);
     if (mpResAnal.ok) {
-      enviarMensajeWhatsApp(from, "Para analizar tu swing realiz\u00e1 el pago de *$ 5.000* ac\u00e1:\n" + mpResAnal.link + "\n\nUna vez que pagues, escribinos ac\u00e1 \u26f3");
-      guardarConversacion(from, { ...datosConContexto, paso: "esperando_pago_analisis", mp_external_ref: mpResAnal.externalRef || codigoAnal });
+      _enviarMensajeWhatsApp(from, "Para analizar tu swing realiz\u00e1 el pago de *$ 5.000* ac\u00e1:\n" + mpResAnal.link + "\n\nUna vez que pagues, escribinos ac\u00e1 \u26f3");
+      _guardarConversacion(from, { ...datosConContexto, paso: "esperando_pago_analisis", mp_external_ref: mpResAnal.externalRef || codigoAnal });
     } else {
-      enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
-      const nombre2 = conv.nombre || obtenerNombreLead(from);
-      enviarMenuPrincipal(from, nombre2);
-      guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+      _enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
+      const nombre2 = conv.nombre || _obtenerNombreLead(from);
+      _enviarMenuPrincipal(from, nombre2);
+      _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
     }
   }
 }
 
-function ofrecerRecargaPlan(from, nombre, conv, comentarios) {
-  const saldo = obtenerSaldoLead(from);
+// Recarga ANTES de pedir el video (evita pedirlo, descartarlo en la recarga,
+// y volver a pedirlo). Al confirmarse el pago, el handler de
+// esperando_pago_recarga (post_recarga="analisis_pre") recién ahí pide el video.
+function _ofrecerRecargaAnalisisPrevia(from, nombre, conv) {
+  const saldo = _obtenerSaldoLead(from);
+  const falta = COSTO_ANALISIS - saldo;
+  const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
+  const mpRes = _crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, falta);
+  if (mpRes.ok) {
+    _enviarMensajeWhatsApp(from,
+      "💰 Tu saldo actual es *" + _formatearSaldo(saldo) + " CLP*.\n\n" +
+      "Para analizar tu swing necesitás *" + _formatearSaldo(COSTO_ANALISIS) + " CLP*.\n\n" +
+      "Recargá *" + _formatearSaldo(falta) + " CLP* acá para continuar:\n" + mpRes.link + "\n\n" +
+      "Una vez que pagues, escribinos acá y te pido el video ⛳"
+    );
+    _guardarConversacion(from, { ...conv, nombre, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: falta, post_recarga: "analisis_pre" });
+    _registrarSesionRecarga(from, conv, falta, mpRes.externalRef);
+  } else {
+    _enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intentá de nuevo ⛳");
+    _enviarMenuPrincipal(from, nombre);
+    _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+  }
+}
+
+function _ofrecerRecargaPlan(from, nombre, conv, comentarios) {
+  const saldo = _obtenerSaldoLead(from);
   const falta = COSTO_PLAN - saldo;
   const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
-  const mpRes = crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, falta);
+  const mpRes = _crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, falta);
   if (mpRes.ok) {
-    enviarMensajeWhatsApp(from,
-      "\uD83D\uDCB0 Tu saldo actual es *" + formatearSaldo(saldo) + " CLP*.\n\n" +
-      "Para tu plan personalizado necesit\u00e1s *" + formatearSaldo(COSTO_PLAN) + " CLP*.\n\n" +
-      "Recarg\u00e1 *" + formatearSaldo(falta) + " CLP* ac\u00e1 para continuar:\n" + mpRes.link + "\n\n" +
+    _enviarMensajeWhatsApp(from,
+      "\uD83D\uDCB0 Tu saldo actual es *" + _formatearSaldo(saldo) + " CLP*.\n\n" +
+      "Para tu plan personalizado necesit\u00e1s *" + _formatearSaldo(COSTO_PLAN) + " CLP*.\n\n" +
+      "Recarg\u00e1 *" + _formatearSaldo(falta) + " CLP* ac\u00e1 para continuar:\n" + mpRes.link + "\n\n" +
       "Una vez que pagues, escribinos ac\u00e1 \u26f3"
     );
-    guardarConversacion(from, { ...conv, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: falta, comentarios_alumno: comentarios, post_recarga: "plan" });
-    registrarSesionRecarga(from, conv, falta, mpRes.externalRef);
+    _guardarConversacion(from, { ...conv, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: falta, comentarios_alumno: comentarios, post_recarga: "plan" });
+    _registrarSesionRecarga(from, conv, falta, mpRes.externalRef);
   } else {
-    const codigoPlan = generarCodigoPlan();
-    const mpResPlan = crearPreferenciaPago(from, nombre, "plan", codigoPlan, COSTO_PLAN);
+    const codigoPlan = _generarCodigoPlan();
+    const mpResPlan = _crearPreferenciaPago(from, nombre, "plan", codigoPlan, COSTO_PLAN);
     if (mpResPlan.ok) {
-      enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Para confirmar tu plan, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + mpResPlan.link + "\n\nUna vez confirmado el pago te avisamos y empezamos \ud83c\udfcc\ufe0f");
+      _enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Para confirmar tu plan, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + mpResPlan.link + "\n\nUna vez confirmado el pago te avisamos y empezamos \ud83c\udfcc\ufe0f");
       const datosConPago = { ...conv, paso: "esperando_pago_plan", comentarios_alumno: comentarios, mp_codigo_plan: codigoPlan };
-      guardarConversacion(from, datosConPago);
-      registrarSesion(from, { ...datosConPago, ejvsplan: "3" });
+      _guardarConversacion(from, datosConPago);
+      _registrarSesion(from, { ...datosConPago, ejvsplan: "3" });
     } else {
-      enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
-      enviarMenuPrincipal(from, nombre);
-      guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+      _enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
+      _enviarMenuPrincipal(from, nombre);
+      _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
     }
   }
 }
 
-function actualizarPagoSesionWallet(from, monto) {
+function _actualizarPagoSesionWallet(from, monto) {
   try {
     const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
     if (!sh) return;
     const d = sh.getDataRange().getValues();
     for (let i = d.length - 1; i >= 1; i--) {
-      if (safeString(d[i][COL.WHATSAPP-1]) === from && safeString(d[i][COL.PAGO_STATUS-1]) !== "pagado") {
+      if (_safeString(d[i][COL.WHATSAPP-1]) === from && _safeString(d[i][COL.PAGO_STATUS-1]) !== "pagado") {
         sh.getRange(i+1, COL.PAGO_STATUS).setValue("pagado");
         sh.getRange(i+1, COL.PAGO_FECHA).setValue(new Date());
         sh.getRange(i+1, COL.PAGO_MONTO).setValue(monto);
         return;
       }
     }
-  } catch(err) { Logger.log("Error actualizarPagoSesionWallet: " + err); }
+  } catch(err) { Logger.log("Error _actualizarPagoSesionWallet: " + err); }
 }
 
-function registrarSesionRecarga(from, conv, monto, externalRef) {
+function _registrarSesionRecarga(from, conv, monto, externalRef) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(SESIONES_SHEET);
@@ -727,17 +815,17 @@ function registrarSesionRecarga(from, conv, monto, externalRef) {
     row[COL.PAGO_MONTO-1] = monto;
     row[COL.CODIGO_PLAN-1] = externalRef;
     sheet.appendRow(row);
-  } catch(err) { Logger.log("Error registrarSesionRecarga: " + err); }
+  } catch(err) { Logger.log("Error _registrarSesionRecarga: " + err); }
 }
 
 // ============================================
 // PROCESAR VIDEO ENTRANTE
 // ============================================
-function procesarVideoEntrante(from, mediaId) {
+function _procesarVideoEntrante(from, mediaId) {
   const lock = LockService.getUserLock();
   if (!lock.tryLock(5000)) { Logger.log("Lock no obtenido para video: " + from); return; }
   try {
-    const conv = obtenerConversacion(from);
+    const conv = _obtenerConversacion(from);
     const paso = conv.paso || "";
     const pasosValidos = ["esperando_video_analisis","esperando_video_indice","esperando_video_plan","esperando_video_plan_1","esperando_video_plan_2","esperando_video_plan_complementario"];
     if (!pasosValidos.includes(paso)) return;
@@ -750,64 +838,64 @@ function procesarVideoEntrante(from, mediaId) {
       folder = folders.hasNext() ? folders.next() : DriveApp.createFolder("Golfito_Videos");
       const file = folder.createFile(videoBlob);
       const driveUrl = file.getUrl();
-      logMensaje(from, "entrante", "video_drive", driveUrl);
+      _logMensaje(from, "entrante", "video_drive", driveUrl);
 
       if (paso === "esperando_video_indice") {
-        const nombreIndice = conv.nombre || obtenerNombreLead(from);
-        enviarMensajeWhatsApp(from, "\u2705 Recib\u00ed tu video " + nombreIndice + ". Calculando tu \u00cdndice Golfito, dame un momento... \uD83D\uDCCA");
-        guardarConversacion(from, { ...conv, paso: "calculando_indice", video_url1: driveUrl });
-        procesarIndiceGolfito(from, driveUrl, conv);
+        const nombreIndice = conv.nombre || _obtenerNombreLead(from);
+        _enviarMensajeWhatsApp(from, "\u2705 Recib\u00ed tu video " + nombreIndice + ". Calculando tu \u00cdndice Golfito, dame un momento... \uD83D\uDCCA");
+        _guardarConversacion(from, { ...conv, paso: "calculando_indice", video_url1: driveUrl });
+        _procesarIndiceGolfito(from, driveUrl, conv);
       } else if (paso === "esperando_video_analisis") {
-        const nombreAnal = conv.nombre || obtenerNombreLead(from);
+        const nombreAnal = conv.nombre || _obtenerNombreLead(from);
         // Registrar sesión con video
         const datosConVideo = { ...conv, video_url1: driveUrl, ejvsplan: "2" };
-        registrarSesion(from, datosConVideo);
+        _registrarSesion(from, datosConVideo);
         // Pedir contexto opcional antes de procesar
-        enviarMensajeWhatsApp(from,
+        _enviarMensajeWhatsApp(from,
           "\u2705 Recib\u00ed tu video " + nombreAnal + ".\n\n" +
           "\u00bfHay algo espec\u00edfico en lo que quer\u00e9s que me enfoque? _(opcional)_\n\n" +
           "Ej: \u00bfMi grip est\u00e1 bien? \u00bfEstoy haciendo slice? \u00bfTransfiero bien el peso?\n\n" +
           "_(Escrib\u00ed tu comentario o *omitir* para continuar)_"
         );
-        guardarConversacion(from, { ...datosConVideo, paso: "esperando_contexto_video" });
+        _guardarConversacion(from, { ...datosConVideo, paso: "esperando_contexto_video" });
 
       } else if (paso === "esperando_video_plan_1") {
-        enviarMensajeWhatsApp(from, "Recib\u00ed el primer video \u2705\n\nAhora enviam\u00e9 un segundo video desde el *frente* \ud83c\udfa5 _(menos de 7 segundos)_\n\nSi no ten\u00e9s, escrib\u00ed *saltar*");
-        guardarConversacion(from, { ...conv, paso: "esperando_video_plan_2", video_url1: driveUrl });
+        _enviarMensajeWhatsApp(from, "Recib\u00ed el primer video \u2705\n\nAhora enviam\u00e9 un segundo video desde el *frente* \ud83c\udfa5 _(menos de 7 segundos)_\n\nSi no ten\u00e9s, escrib\u00ed *saltar*");
+        _guardarConversacion(from, { ...conv, paso: "esperando_video_plan_2", video_url1: driveUrl });
       } else if (paso === "esperando_video_plan_2") {
-        enviarMensajeWhatsApp(from, "Recib\u00ed los dos videos \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
-        guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url2: driveUrl });
+        _enviarMensajeWhatsApp(from, "Recib\u00ed los dos videos \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
+        _guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url2: driveUrl });
       } else if (paso === "esperando_video_plan_complementario") {
         const yaTeníaUrl1 = !!conv.video_url1;
         const datos = yaTeníaUrl1 ? { ...conv, video_url2: driveUrl } : { ...conv, video_url1: driveUrl };
-        enviarMensajeWhatsApp(from, "Recib\u00ed el video complementario \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
-        guardarConversacion(from, { ...datos, paso: "esperando_comentarios_alumno" });
+        _enviarMensajeWhatsApp(from, "Recib\u00ed el video complementario \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
+        _guardarConversacion(from, { ...datos, paso: "esperando_comentarios_alumno" });
       } else if (paso === "esperando_video_plan") {
         if (MODO_TEST_PLAN) {
-          enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + conv.nombre + " \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
-          guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: driveUrl });
+          _enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + conv.nombre + " \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
+          _guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: driveUrl });
         } else {
-          const nombre = conv.nombre || obtenerNombreLead(from);
-          const saldo = obtenerSaldoLead(from);
+          const nombre = conv.nombre || _obtenerNombreLead(from);
+          const saldo = _obtenerSaldoLead(from);
           if (saldo >= COSTO_PLAN) {
-            enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + nombre + " \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
-            guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: driveUrl });
+            _enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + nombre + " \u2705\n\n\u00bfHay algo espec\u00edfico que quer\u00e9s mejorar o en lo que quer\u00e9s enfocarte? _(opcional \u2014 pod\u00e9s escribir *saltar*)_");
+            _guardarConversacion(from, { ...conv, paso: "esperando_comentarios_alumno", video_url1: driveUrl });
           } else {
-            const cod2 = safeString(obtenerCodigoPlanPendiente(from)) || generarCodigoPlan();
-            const mpRes2 = crearPreferenciaPago(from, nombre, "plan", cod2, COSTO_PLAN);
+            const cod2 = _safeString(_obtenerCodigoPlanPendiente(from)) || _generarCodigoPlan();
+            const mpRes2 = _crearPreferenciaPago(from, nombre, "plan", cod2, COSTO_PLAN);
             const lnk2 = mpRes2.ok ? mpRes2.link : "https://mpago.la/TU-LINK-PLAN";
-            enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + nombre + " \u2705\n\nPara continuar realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + lnk2 + "\n\nCualquier otra consulta escribinos \u26f3");
-            guardarConversacion(from, { ...conv, paso: "esperando_pago_plan", video_url1: driveUrl, mp_codigo_plan: cod2 });
+            _enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + nombre + " \u2705\n\nPara continuar realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + lnk2 + "\n\nCualquier otra consulta escribinos \u26f3");
+            _guardarConversacion(from, { ...conv, paso: "esperando_pago_plan", video_url1: driveUrl, mp_codigo_plan: cod2 });
           }
         }
       }
     } catch (err) {
       const errorMsg = "Error procesando video: " + err.toString();
-      Logger.log(errorMsg); logMensaje(from, "error", "video_error", errorMsg);
+      Logger.log(errorMsg); _logMensaje(from, "error", "video_error", errorMsg);
       const mensajeError = err.toString().includes("unavailable") || err.toString().includes("fbsbx")
         ? "El link del video expir\u00f3 \u23f1 Por favor reenviam\u00e9 el video e intentamos de nuevo."
         : "Hubo un problema al recibir el video. Pod\u00e9s intentar de nuevo.";
-      enviarMensajeWhatsApp(from, mensajeError);
+      _enviarMensajeWhatsApp(from, mensajeError);
     }
   } finally { lock.releaseLock(); }
 }
@@ -815,55 +903,55 @@ function procesarVideoEntrante(from, mediaId) {
 // ============================================
 // PROCESAR ANALISIS DE VIDEO CON GEMINI
 // ============================================
-function procesarAnalisisVideo(from, conv, esSegundoVideo) {
+function _procesarAnalisisVideo(from, conv, esSegundoVideo) {
   try {
     const driveUrl = esSegundoVideo ? conv.video_url2 : conv.video_url1;
     if (!driveUrl) throw new Error("No hay video para analizar");
     const match = driveUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (!match) throw new Error("No se pudo obtener el ID del video");
-    const resultado = analizarSwingConGemini(match[1], conv.contexto_analisis || "", from);
+    const resultado = _analizarSwingConGemini(match[1], conv.contexto_analisis || "", from);
     if (!resultado.ok) throw new Error(resultado.error);
     const a = resultado.analisis;
     const titulo = esSegundoVideo ? "\ud83e\udd16 *An\u00e1lisis complementario (" + a.angulo + ")*" : "\ud83e\udd16 *An\u00e1lisis de tu swing (" + a.angulo + ")*";
-    enviarMensajeWhatsApp(from, titulo + "\n\n\ud83c\udfaf *Error principal:* " + a.error_principal + "\n\ud83d\udcca *Severidad:* " + a.severidad + "\n\n\ud83d\udcdd *Detalles:*\n" + a.detalles + "\n\n\ud83d\udca1 *Recomendaci\u00f3n:*\n" + a.recomendacion);
-    const nombre = conv.nombre || obtenerNombreLead(from);
+    _enviarMensajeWhatsApp(from, titulo + "\n\n\ud83c\udfaf *Error principal:* " + a.error_principal + "\n\ud83d\udcca *Severidad:* " + a.severidad + "\n\n\ud83d\udcdd *Detalles:*\n" + a.detalles + "\n\n\ud83d\udca1 *Recomendaci\u00f3n:*\n" + a.recomendacion);
+    const nombre = conv.nombre || _obtenerNombreLead(from);
     if (!esSegundoVideo) {
-      enviarMenuPrincipal(from, nombre);
+      _enviarMenuPrincipal(from, nombre);
       const datos = { ...conv, paso: "esperando_menu_principal", analisis1: a };
-      guardarConversacion(from, datos);
-      if (safeString(conv.ejvsplan) === "2") actualizarSesionAnalisis(from, a, null);
+      _guardarConversacion(from, datos);
+      if (_safeString(conv.ejvsplan) === "2") _actualizarSesionAnalisis(from, a, null);
     } else {
-      enviarMenuPrincipal(from, nombre);
+      _enviarMenuPrincipal(from, nombre);
       const datos = { ...conv, paso: "esperando_menu_principal", analisis2: a };
-      guardarConversacion(from, datos);
-      if (safeString(conv.ejvsplan) !== "3") actualizarSesionAnalisis(from, conv.analisis1 || null, a);
+      _guardarConversacion(from, datos);
+      if (_safeString(conv.ejvsplan) !== "3") _actualizarSesionAnalisis(from, conv.analisis1 || null, a);
     }
   } catch (err) {
-    Logger.log("Error procesarAnalisisVideo: " + err);
-    logMensaje(from, "error", "analisis_error", err.toString());
-    enviarMensajeWhatsApp(from, "Estamos experimentando alta demanda en este momento. Intent\u00e1 de nuevo en unos minutos \u26f3");
-    const nombre = conv.nombre || obtenerNombreLead(from);
+    Logger.log("Error _procesarAnalisisVideo: " + err);
+    _logMensaje(from, "error", "analisis_error", err.toString());
+    _enviarMensajeWhatsApp(from, "Estamos experimentando alta demanda en este momento. Intent\u00e1 de nuevo en unos minutos \u26f3");
+    const nombre = conv.nombre || _obtenerNombreLead(from);
     const datos = { ...conv, paso: "esperando_menu_principal" };
-    guardarConversacion(from, datos); enviarMenuPrincipal(from, nombre);
+    _guardarConversacion(from, datos); _enviarMenuPrincipal(from, nombre);
   }
 }
 
-function guardarFeedbackScore(from, score) {
+function _guardarFeedbackScore(from, score) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   for (let i = data.length-1; i >= 1; i--) {
-    if (safeString(data[i][COL.WHATSAPP-1]) === from && safeString(data[i][COL.EJVSPLAN-1]) === "3") {
+    if (_safeString(data[i][COL.WHATSAPP-1]) === from && _safeString(data[i][COL.EJVSPLAN-1]) === "3") {
       sheet.getRange(i+1,COL.FEEDBACK_SCORE).setValue(score); sheet.getRange(i+1,COL.FEEDBACK_ALUMNO).setValue(String(score)); sheet.getRange(i+1,COL.FECHA_FEEDBACK).setValue(new Date()); return;
     }
   }
 }
-function guardarFeedback(from, texto) {
+function _guardarFeedback(from, texto) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   for (let i = data.length-1; i >= 1; i--) {
-    if (safeString(data[i][COL.WHATSAPP-1]) === from && safeString(data[i][COL.EJVSPLAN-1]) === "3") {
+    if (_safeString(data[i][COL.WHATSAPP-1]) === from && _safeString(data[i][COL.EJVSPLAN-1]) === "3") {
       sheet.getRange(i+1,COL.FEEDBACK_ALUMNO).setValue(texto); sheet.getRange(i+1,COL.FECHA_FEEDBACK).setValue(new Date()); return;
     }
   }
@@ -876,21 +964,21 @@ function enviarFeedbackPendiente() {
   const data = sheet.getDataRange().getValues(); const leads = leadsSheet.getDataRange().getValues();
   const ahora = new Date(); const dosHoras = 2*60*60*1000;
   for (let i = 1; i < data.length; i++) {
-    const ejvsplan = safeString(data[i][COL.EJVSPLAN-1]); const status = safeString(data[i][COL.STATUS-1]).toLowerCase();
-    const feedback = safeString(data[i][COL.FEEDBACK_ALUMNO-1]); const fechaFeedback = data[i][COL.FECHA_FEEDBACK-1];
-    const timestamp = data[i][COL.TIMESTAMP-1]; const whatsapp = safeString(data[i][COL.WHATSAPP-1]);
+    const ejvsplan = _safeString(data[i][COL.EJVSPLAN-1]); const status = _safeString(data[i][COL.STATUS-1]).toLowerCase();
+    const feedback = _safeString(data[i][COL.FEEDBACK_ALUMNO-1]); const fechaFeedback = data[i][COL.FECHA_FEEDBACK-1];
+    const timestamp = data[i][COL.TIMESTAMP-1]; const whatsapp = _safeString(data[i][COL.WHATSAPP-1]);
     if (ejvsplan !== "3" || status !== "enviado" || feedback || fechaFeedback || !timestamp) continue;
     if (ahora - new Date(timestamp) < dosHoras) continue;
     let nombre = "";
-    for (let j = 1; j < leads.length; j++) { if (safeString(leads[j][0]) === whatsapp) { nombre = safeString(leads[j][1]); break; } }
+    for (let j = 1; j < leads.length; j++) { if (_safeString(leads[j][0]) === whatsapp) { nombre = _safeString(leads[j][1]); break; } }
     sheet.getRange(i+1, COL.FECHA_FEEDBACK).setValue(ahora);
-    const conv = obtenerConversacion(whatsapp);
-    guardarConversacion(whatsapp, { ...conv, paso: "esperando_feedback" });
-    enviarMensajeWhatsApp(whatsapp, "\u00a1Hola " + nombre + "! \ud83c\udfcc\ufe0f Del 1 al 5, \u00bfqu\u00e9 tan \u00fatil fue tu plan?\n\n1 = poco \u00fatil \u00b7 5 = muy \u00fatil");
+    const conv = _obtenerConversacion(whatsapp);
+    _guardarConversacion(whatsapp, { ...conv, paso: "esperando_feedback" });
+    _enviarMensajeWhatsApp(whatsapp, "\u00a1Hola " + nombre + "! \ud83c\udfcc\ufe0f Del 1 al 5, \u00bfqu\u00e9 tan \u00fatil fue tu plan?\n\n1 = poco \u00fatil \u00b7 5 = muy \u00fatil");
   }
 }
 
-function guardarConsulta(from, nombre, texto) {
+function _guardarConsulta(from, nombre, texto) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(CONSULTAS_SHEET);
   if (!sheet) { sheet = ss.insertSheet(CONSULTAS_SHEET); sheet.appendRow(["timestamp","whatsapp","nombre","consulta","respondida"]); }
@@ -898,36 +986,36 @@ function guardarConsulta(from, nombre, texto) {
   try { GmailApp.sendEmail(Session.getActiveUser().getEmail(), "\ud83d\udcac Nueva consulta de " + nombre, "WhatsApp: " + from + "\nNombre: " + nombre + "\n\nConsulta:\n" + texto); } catch(err) { Logger.log("Error email consulta: " + err); }
 }
 
-function actualizarHandicapLead(from, handicap) {
+function _actualizarHandicapLead(from, handicap) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) { if (safeString(data[i][0]) === from) { sheet.getRange(i+1,4).setValue(handicap); return; } }
+  for (let i = 1; i < data.length; i++) { if (_safeString(data[i][0]) === from) { sheet.getRange(i+1,4).setValue(handicap); return; } }
 }
 
-function logMensaje(from, direccion, tipo, contenido) {
+function _logMensaje(from, direccion, tipo, contenido) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName("ChatLog");
   if (!sheet) { sheet = ss.insertSheet("ChatLog"); sheet.appendRow(["timestamp","whatsapp","direccion","tipo","contenido"]); }
   sheet.appendRow([new Date(), from, direccion, tipo, contenido]);
 }
 
-function registrarOActualizarLead(from, nombre, handicap) {
+function _registrarOActualizarLead(from, nombre, handicap) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(LEADS_SHEET);
   if (!sheet) { sheet = ss.insertSheet(LEADS_SHEET); sheet.appendRow(["whatsapp","nombre","fecha_registro","handicap","notas","saldo"]); }
   const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) { if (safeString(data[i][0]) === from) { sheet.getRange(i+1,4).setValue(handicap); return; } }
+  for (let i = 1; i < data.length; i++) { if (_safeString(data[i][0]) === from) { sheet.getRange(i+1,4).setValue(handicap); return; } }
   sheet.appendRow([from, nombre, new Date(), handicap, "", 0]);
 }
 
-function registrarSesion(from, conv, analisis1, analisis2) {
+function _registrarSesion(from, conv, analisis1, analisis2) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SESIONES_SHEET);
   if (!sheet) { sheet = ss.insertSheet(SESIONES_SHEET); sheet.appendRow(SESIONES_HEADERS); }
-  const aspecto = mapAspectoLead(conv.aspecto||""); const nivel = mapNivel(conv.handicap||"", aspecto);
+  const aspecto = _mapAspectoLead(conv.aspecto||""); const nivel = _mapNivel(conv.handicap||"", aspecto);
   const ejvsplan = conv.ejvsplan||"1"; const a1 = analisis1||conv.analisis1||null; const a2 = analisis2||conv.analisis2||null;
-  const codigoPlan = ejvsplan==="3" ? generarCodigoPlan() : ""; const numPlanAlumno = ejvsplan==="3" ? contarPlanesAlumno(from,sheet)+1 : "";
+  const codigoPlan = ejvsplan==="3" ? _generarCodigoPlan() : ""; const numPlanAlumno = ejvsplan==="3" ? _contarPlanesAlumno(from,sheet)+1 : "";
   const pagoStatus = (MODO_TEST_PLAN || MODO_TEST_ANALISIS || conv.pago_wallet) ? "pagado" : (ejvsplan==="1" ? "gratis" : "pendiente");
   const pagoMonto = ejvsplan==="1" ? 0 : ejvsplan==="2" ? COSTO_ANALISIS : COSTO_PLAN;
   const row = new Array(SESIONES_HEADERS.length).fill("");
@@ -942,20 +1030,20 @@ function registrarSesion(from, conv, analisis1, analisis2) {
   row[COL.PAGO_FECHA-1]=(MODO_TEST_PLAN || MODO_TEST_ANALISIS || conv.pago_wallet) ? new Date() : ""; row[COL.CODIGO_PLAN-1]=codigoPlan; row[COL.NUM_PLAN_ALUMNO-1]=numPlanAlumno;
   row[COL.COMENTARIOS_ALUMNO-1]=conv.comentarios_alumno||"";
   sheet.appendRow(row);
-  registrarOActualizarLead(from, conv.nombre||"", conv.handicap||"");
+  _registrarOActualizarLead(from, conv.nombre||"", conv.handicap||"");
   Utilities.sleep(1000); procesarSesionesPendientes();
 }
 
-function generarCodigoPlan() { return "PLAN-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-6); }
+function _generarCodigoPlan() { return "PLAN-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-6); }
 
-function actualizarSesionAnalisis(from, analisis1, analisis2) {
+function _actualizarSesionAnalisis(from, analisis1, analisis2) {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
     if (!sheet) return;
     const data = sheet.getDataRange().getValues();
     for (let i = data.length - 1; i >= 1; i--) {
-      if (safeString(data[i][COL.WHATSAPP-1]) !== from) continue;
-      if (safeString(data[i][COL.EJVSPLAN-1]) !== "2") continue;
+      if (_safeString(data[i][COL.WHATSAPP-1]) !== from) continue;
+      if (_safeString(data[i][COL.EJVSPLAN-1]) !== "2") continue;
       const rowNum = i + 1;
       if (analisis1) {
         sheet.getRange(rowNum, COL.ANALISIS_ERROR_IA1).setValue(analisis1.error_principal || "");
@@ -972,50 +1060,50 @@ function actualizarSesionAnalisis(from, analisis1, analisis2) {
         sheet.getRange(rowNum, COL.ANALISIS_ANGULO_IA2).setValue(analisis2.angulo || "");
       }
       sheet.getRange(rowNum, COL.STATUS).setValue("enviado");
-      Logger.log("actualizarSesionAnalisis OK fila " + rowNum);
+      Logger.log("_actualizarSesionAnalisis OK fila " + rowNum);
       return;
     }
-    Logger.log("actualizarSesionAnalisis: no se encontro fila para " + from);
-  } catch(err) { Logger.log("Error actualizarSesionAnalisis: " + err); }
+    Logger.log("_actualizarSesionAnalisis: no se encontro fila para " + from);
+  } catch(err) { Logger.log("Error _actualizarSesionAnalisis: " + err); }
 }
 
-function obtenerCodigoPlanPendiente(from) {
+function _obtenerCodigoPlanPendiente(from) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
   if (!sheet) return "";
   const data = sheet.getDataRange().getValues();
-  for (let i = data.length-1; i >= 1; i--) { if (safeString(data[i][COL.WHATSAPP-1])===from && safeString(data[i][COL.EJVSPLAN-1])==="3" && !safeString(data[i][COL.PAGO_STATUS-1]).includes("pagado")) return safeString(data[i][COL.CODIGO_PLAN-1]); }
+  for (let i = data.length-1; i >= 1; i--) { if (_safeString(data[i][COL.WHATSAPP-1])===from && _safeString(data[i][COL.EJVSPLAN-1])==="3" && !_safeString(data[i][COL.PAGO_STATUS-1]).includes("pagado")) return _safeString(data[i][COL.CODIGO_PLAN-1]); }
   return "";
 }
-function contarPlanesAlumno(from, sheet) {
+function _contarPlanesAlumno(from, sheet) {
   const data = sheet.getDataRange().getValues(); let count = 0;
-  for (let i = 1; i < data.length; i++) { if (safeString(data[i][COL.WHATSAPP-1])===from && safeString(data[i][COL.EJVSPLAN-1])==="3") count++; }
+  for (let i = 1; i < data.length; i++) { if (_safeString(data[i][COL.WHATSAPP-1])===from && _safeString(data[i][COL.EJVSPLAN-1])==="3") count++; }
   return count;
 }
 
-function obtenerConversacion(from) {
+function _obtenerConversacion(from) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONVERSATIONS_SHEET);
   if (!sheet) return {};
   const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) { if (safeString(data[i][0])===from) { try { return JSON.parse(safeString(data[i][1]))||{}; } catch(e) { return {}; } } }
+  for (let i = 1; i < data.length; i++) { if (_safeString(data[i][0])===from) { try { return JSON.parse(_safeString(data[i][1]))||{}; } catch(e) { return {}; } } }
   return {};
 }
-function guardarConversacion(from, estado) {
+function _guardarConversacion(from, estado) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(CONVERSATIONS_SHEET);
   if (!sheet) { sheet = ss.insertSheet(CONVERSATIONS_SHEET); sheet.appendRow(["whatsapp","estado","ultima_actualizacion"]); }
   const data = sheet.getDataRange().getValues(); const timestamp = new Date();
-  for (let i = 1; i < data.length; i++) { if (safeString(data[i][0])===from) { sheet.getRange(i+1,2).setValue(JSON.stringify(estado)); sheet.getRange(i+1,3).setValue(timestamp); return; } }
+  for (let i = 1; i < data.length; i++) { if (_safeString(data[i][0])===from) { sheet.getRange(i+1,2).setValue(JSON.stringify(estado)); sheet.getRange(i+1,3).setValue(timestamp); return; } }
   sheet.appendRow([from, JSON.stringify(estado), timestamp]);
 }
 
-function enviarMensajeWhatsApp(telefono, mensaje) {
+function _enviarMensajeWhatsApp(telefono, mensaje) {
   UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/messages", {
     method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN, "Content-Type": "application/json" },
     payload: JSON.stringify({ messaging_product: "whatsapp", to: telefono, type: "text", text: { body: mensaje } })
   });
-  logMensaje(telefono, "saliente", "texto", mensaje);
+  _logMensaje(telefono, "saliente", "texto", mensaje);
 }
-function enviarDocumentoWhatsApp(telefono, fileId, fileName) {
+function _enviarDocumentoWhatsApp(telefono, fileId, fileName) {
   const file = DriveApp.getFileById(fileId); const blob = file.getBlob();
   const uploadRes = UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/media", { method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN }, payload: { messaging_product: "whatsapp", type: "application/pdf", file: blob } });
   const uploadData = JSON.parse(uploadRes.getContentText());
@@ -1039,10 +1127,10 @@ function procesarSesionesPendientes() {
     if (sesiones.length < 2) return;
     for (let i = 1; i < sesiones.length; i++) {
       const rowNumber = i+1; const row = sesiones[i];
-      const whatsapp = safeString(row[COL.WHATSAPP-1]); const aspectoRaw = safeString(row[COL.ASPECTO-1]);
-      const nivelRaw = safeString(row[COL.NIVEL-1]); const ejvsplanRaw = safeString(row[COL.EJVSPLAN-1]);
-      const status = safeString(row[COL.STATUS-1]).toLowerCase(); const contenidoEnviado = safeString(row[COL.CONTENIDO_ENVIADO-1]);
-      const pagoStatusRow = safeString(row[COL.PAGO_STATUS-1]).toLowerCase();
+      const whatsapp = _safeString(row[COL.WHATSAPP-1]); const aspectoRaw = _safeString(row[COL.ASPECTO-1]);
+      const nivelRaw = _safeString(row[COL.NIVEL-1]); const ejvsplanRaw = _safeString(row[COL.EJVSPLAN-1]);
+      const status = _safeString(row[COL.STATUS-1]).toLowerCase(); const contenidoEnviado = _safeString(row[COL.CONTENIDO_ENVIADO-1]);
+      const pagoStatusRow = _safeString(row[COL.PAGO_STATUS-1]).toLowerCase();
       if (!whatsapp || status==="enviado" || status==="procesando" || status==="pendiente_manual" || contenidoEnviado) continue;
       if (pagoStatusRow === "pendiente" || pagoStatusRow === "pendiente_recarga") continue;
       if (ejvsplanRaw === "recarga") continue;
@@ -1050,39 +1138,39 @@ function procesarSesionesPendientes() {
         sesionesSheet.getRange(rowNumber, COL.STATUS).setValue("pendiente_manual");
         continue;
       }
-      let nombre = ""; for (let j=1;j<leads.length;j++) { if (safeString(leads[j][0])===whatsapp) { nombre=safeString(leads[j][1]); break; } }
+      let nombre = ""; for (let j=1;j<leads.length;j++) { if (_safeString(leads[j][0])===whatsapp) { nombre=_safeString(leads[j][1]); break; } }
       try {
         sesionesSheet.getRange(rowNumber,COL.STATUS).setValue("procesando");
-        const tipoSolicitud = mapTipoSolicitudPorEjvsplan(ejvsplanRaw);
+        const tipoSolicitud = _mapTipoSolicitudPorEjvsplan(ejvsplanRaw);
         const perfil = { nivel: nivelRaw, aspecto: aspectoRaw, tiempo: "45 minutos" };
         if (tipoSolicitud === "analisis_video") { sesionesSheet.getRange(rowNumber,COL.STATUS).setValue("enviado"); continue; }
         if (tipoSolicitud === "plan_personalizado") {
-          const mensajePlan = construirMensajePendienteManual(nombre, perfil);
-          enviarMensajeWhatsApp(whatsapp, mensajePlan);
-          notificarNuevoPlan(nombre, whatsapp, perfil, safeString(row[COL.VIDEO_URL1-1]), safeString(row[COL.COMENTARIOS_ALUMNO-1]));
+          const mensajePlan = _construirMensajePendienteManual(nombre, perfil);
+          _enviarMensajeWhatsApp(whatsapp, mensajePlan);
+          _notificarNuevoPlan(nombre, whatsapp, perfil, _safeString(row[COL.VIDEO_URL1-1]), _safeString(row[COL.COMENTARIOS_ALUMNO-1]));
           sesionesSheet.getRange(rowNumber,COL.STATUS).setValue("pendiente_manual");
           sesionesSheet.getRange(rowNumber,COL.CONTENIDO_ENVIADO).setValue(mensajePlan); continue;
         }
-        const ejerciciosYaEnviados = obtenerEjerciciosYaEnviados(sesiones, whatsapp);
+        const ejerciciosYaEnviados = _obtenerEjerciciosYaEnviados(sesiones, whatsapp);
         if (ejerciciosYaEnviados.length >= FREE_EXERCISE_LIMIT) {
-          const mensajeUpsell = construirMensajeUpsell(nombre);
-          enviarMensajeWhatsApp(whatsapp, mensajeUpsell);
+          const mensajeUpsell = _construirMensajeUpsell(nombre);
+          _enviarMensajeWhatsApp(whatsapp, mensajeUpsell);
           sesionesSheet.getRange(rowNumber,COL.STATUS).setValue("enviado");
           sesionesSheet.getRange(rowNumber,COL.CONTENIDO_ENVIADO).setValue(mensajeUpsell);
           sesionesSheet.getRange(rowNumber,COL.EJERCICIO_GRATIS_ID).setValue("UPSELL"); continue;
         }
-        const ejercicios = seleccionarEjercicios(perfil, 1, ejerciciosYaEnviados);
+        const ejercicios = _seleccionarEjercicios(perfil, 1, ejerciciosYaEnviados);
         if (ejercicios.length === 0) {
           const mensajeError = "Hola " + nombre + " \u26f3\n\nHubo un inconveniente al preparar tu ejercicio.\nUno de nuestros expertos se va a contactar con vos a la brevedad.";
-          enviarMensajeWhatsApp(whatsapp, mensajeError);
+          _enviarMensajeWhatsApp(whatsapp, mensajeError);
           sesionesSheet.getRange(rowNumber,COL.STATUS).setValue("pendiente_manual");
           sesionesSheet.getRange(rowNumber,COL.CONTENIDO_ENVIADO).setValue(mensajeError);
           sesionesSheet.getRange(rowNumber,COL.EJERCICIO_GRATIS_ID).setValue("SIN_EJERCICIO"); continue;
         }
-        const prompt = buildPromptConEjercicios({ nombre, perfil, ejercicios });
-        const plan = llamarOpenAI(prompt, OPENAI_API_KEY);
-        const mensajeFinal = construirMensajeFinal(plan, ejercicios);
-        enviarMensajeWhatsApp(whatsapp, truncateForWhatsApp(mensajeFinal, 1400));
+        const prompt = _buildPromptConEjercicios({ nombre, perfil, ejercicios });
+        const plan = _llamarOpenAI(prompt, OPENAI_API_KEY);
+        const mensajeFinal = _construirMensajeFinal(plan, ejercicios);
+        _enviarMensajeWhatsApp(whatsapp, _truncateForWhatsApp(mensajeFinal, 1400));
         sesionesSheet.getRange(rowNumber,COL.STATUS).setValue("enviado");
         sesionesSheet.getRange(rowNumber,COL.CONTENIDO_ENVIADO).setValue(mensajeFinal);
         sesionesSheet.getRange(rowNumber,COL.EJERCICIO_GRATIS_ID).setValue(ejercicios[0].id);
@@ -1091,7 +1179,7 @@ function procesarSesionesPendientes() {
   } finally { lock.releaseLock(); }
 }
 
-function notificarNuevoPlan(nombre, whatsapp, perfil, videoUrl, comentariosAlumno) {
+function _notificarNuevoPlan(nombre, whatsapp, perfil, videoUrl, comentariosAlumno) {
   try {
     const email = Session.getActiveUser().getEmail();
     GmailApp.sendEmail(email, "\u26f3 Nuevo plan solicitado \u2014 " + nombre,
@@ -1102,63 +1190,66 @@ function notificarNuevoPlan(nombre, whatsapp, perfil, videoUrl, comentariosAlumn
 // ============================================
 // WEB APP FUNCTIONS
 // ============================================
-function obtenerLeads() {
+function obtenerLeads(token) {
+  if (!_autorizadoPanel(token)) return { leads: [] };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sesionesSheet = ss.getSheetByName(SESIONES_SHEET); const leadsSheet = ss.getSheetByName(LEADS_SHEET);
   if (!sesionesSheet) return { leads: [] };
   const sesiones = sesionesSheet.getDataRange().getValues(); const leadsData = leadsSheet ? leadsSheet.getDataRange().getValues() : [];
-  const leadsMap = {}; for (let i=1;i<leadsData.length;i++) { const wa=safeString(leadsData[i][0]); if (wa) leadsMap[wa]={nombre:safeString(leadsData[i][1]),handicap:safeString(leadsData[i][3]),saldo:parseFloat(leadsData[i][LEADS_COL_SALDO-1])||0}; }
+  const leadsMap = {}; for (let i=1;i<leadsData.length;i++) { const wa=_safeString(leadsData[i][0]); if (wa) leadsMap[wa]={nombre:_safeString(leadsData[i][1]),handicap:_safeString(leadsData[i][3]),saldo:parseFloat(leadsData[i][LEADS_COL_SALDO-1])||0}; }
   const convsSheet = ss.getSheetByName(CONVERSATIONS_SHEET); const convsMap = {};
-  if (convsSheet) { const cd=convsSheet.getDataRange().getValues(); for (let i=1;i<cd.length;i++) { const wa=safeString(cd[i][0]); if (!wa) continue; try { const e=JSON.parse(safeString(cd[i][1]))||{}; if (e.comentarios_alumno) convsMap[wa]=e.comentarios_alumno; } catch(e){} } }
+  if (convsSheet) { const cd=convsSheet.getDataRange().getValues(); for (let i=1;i<cd.length;i++) { const wa=_safeString(cd[i][0]); if (!wa) continue; try { const e=JSON.parse(_safeString(cd[i][1]))||{}; if (e.comentarios_alumno) convsMap[wa]=e.comentarios_alumno; } catch(e){} } }
   const leads = [];
   for (let i=1;i<sesiones.length;i++) {
-    const row=sesiones[i]; const whatsapp=safeString(row[COL.WHATSAPP-1]); const ejvsplan=safeString(row[COL.EJVSPLAN-1]); const status=safeString(row[COL.STATUS-1]).toLowerCase();
+    const row=sesiones[i]; const whatsapp=_safeString(row[COL.WHATSAPP-1]); const ejvsplan=_safeString(row[COL.EJVSPLAN-1]); const status=_safeString(row[COL.STATUS-1]).toLowerCase();
     if (!whatsapp || (ejvsplan!=="3" && ejvsplan!=="2")) continue;
     const li = leadsMap[whatsapp]||{nombre:"",handicap:"",saldo:0};
-    leads.push({ rowIndex:i+1, whatsapp, nombre:li.nombre, handicap:li.handicap, saldo:li.saldo, nivel:safeString(row[COL.NIVEL-1]), aspecto:safeString(row[COL.ASPECTO-1]), ejvsplan, status,
-      videoUrl1:safeString(row[COL.VIDEO_URL1-1]), videoUrl2:safeString(row[COL.VIDEO_URL2-1]),
-      analisisError1:safeString(row[COL.ANALISIS_ERROR_IA1-1]), analisisArea1:safeString(row[COL.ANALISIS_AREA_IA1-1]),
-      analisisSeveridad1:safeString(row[COL.ANALISIS_SEVERIDAD_IA1-1]), analisisRecomendacion1:safeString(row[COL.ANALISIS_RECOMENDACION_IA1-1]),
-      analisisAngulo1:safeString(row[COL.ANALISIS_ANGULO_IA1-1]), analisisError2:safeString(row[COL.ANALISIS_ERROR_IA2-1]),
-      analisisArea2:safeString(row[COL.ANALISIS_AREA_IA2-1]), analisisSeveridad2:safeString(row[COL.ANALISIS_SEVERIDAD_IA2-1]),
-      analisisRecomendacion2:safeString(row[COL.ANALISIS_RECOMENDACION_IA2-1]), analisisAngulo2:safeString(row[COL.ANALISIS_ANGULO_IA2-1]),
-      analisisManual1:safeString(row[COL.ANALISIS_MANUAL_1-1]), analisisManual2:safeString(row[COL.ANALISIS_MANUAL_2-1]),
-      pagoStatus:safeString(row[COL.PAGO_STATUS-1]), pagoMonto:safeString(row[COL.PAGO_MONTO-1]),
-      codigoPlan:safeString(row[COL.CODIGO_PLAN-1]), numPlanAlumno:safeString(row[COL.NUM_PLAN_ALUMNO-1]),
-      notaCoach:safeString(row[COL.NOTA_COACH-1]), diagnostico:safeString(row[COL.DIAGNOSTICO-1]),
-      entradaEnCalor:safeString(row[COL.ENTRADA_EN_CALOR-1]), consideraciones:safeString(row[COL.CONSIDERACIONES-1]),
-      comentariosAlumno:safeString(row[COL.COMENTARIOS_ALUMNO-1])||convsMap[whatsapp]||"",
-      ejercicioApproach:safeString(row[COL.EJERCICIO_APPROACH-1]), ejercicioFullswingHierros:safeString(row[COL.EJERCICIO_FULLSWING_HIERROS-1]),
-      ejercicioFullswingMaderas:safeString(row[COL.EJERCICIO_FULLSWING_MADERAS-1]), ejercicioPutter:safeString(row[COL.EJERCICIO_PUTTER-1]),
-      feedbackAlumno:safeString(row[COL.FEEDBACK_ALUMNO-1]), feedbackScore:safeString(row[COL.FEEDBACK_SCORE-1]),
+    leads.push({ rowIndex:i+1, whatsapp, nombre:li.nombre, handicap:li.handicap, saldo:li.saldo, nivel:_safeString(row[COL.NIVEL-1]), aspecto:_safeString(row[COL.ASPECTO-1]), ejvsplan, status,
+      videoUrl1:_safeString(row[COL.VIDEO_URL1-1]), videoUrl2:_safeString(row[COL.VIDEO_URL2-1]),
+      analisisError1:_safeString(row[COL.ANALISIS_ERROR_IA1-1]), analisisArea1:_safeString(row[COL.ANALISIS_AREA_IA1-1]),
+      analisisSeveridad1:_safeString(row[COL.ANALISIS_SEVERIDAD_IA1-1]), analisisRecomendacion1:_safeString(row[COL.ANALISIS_RECOMENDACION_IA1-1]),
+      analisisAngulo1:_safeString(row[COL.ANALISIS_ANGULO_IA1-1]), analisisError2:_safeString(row[COL.ANALISIS_ERROR_IA2-1]),
+      analisisArea2:_safeString(row[COL.ANALISIS_AREA_IA2-1]), analisisSeveridad2:_safeString(row[COL.ANALISIS_SEVERIDAD_IA2-1]),
+      analisisRecomendacion2:_safeString(row[COL.ANALISIS_RECOMENDACION_IA2-1]), analisisAngulo2:_safeString(row[COL.ANALISIS_ANGULO_IA2-1]),
+      analisisManual1:_safeString(row[COL.ANALISIS_MANUAL_1-1]), analisisManual2:_safeString(row[COL.ANALISIS_MANUAL_2-1]),
+      pagoStatus:_safeString(row[COL.PAGO_STATUS-1]), pagoMonto:_safeString(row[COL.PAGO_MONTO-1]),
+      codigoPlan:_safeString(row[COL.CODIGO_PLAN-1]), numPlanAlumno:_safeString(row[COL.NUM_PLAN_ALUMNO-1]),
+      notaCoach:_safeString(row[COL.NOTA_COACH-1]), diagnostico:_safeString(row[COL.DIAGNOSTICO-1]),
+      entradaEnCalor:_safeString(row[COL.ENTRADA_EN_CALOR-1]), consideraciones:_safeString(row[COL.CONSIDERACIONES-1]),
+      comentariosAlumno:_safeString(row[COL.COMENTARIOS_ALUMNO-1])||convsMap[whatsapp]||"",
+      ejercicioApproach:_safeString(row[COL.EJERCICIO_APPROACH-1]), ejercicioFullswingHierros:_safeString(row[COL.EJERCICIO_FULLSWING_HIERROS-1]),
+      ejercicioFullswingMaderas:_safeString(row[COL.EJERCICIO_FULLSWING_MADERAS-1]), ejercicioPutter:_safeString(row[COL.EJERCICIO_PUTTER-1]),
+      feedbackAlumno:_safeString(row[COL.FEEDBACK_ALUMNO-1]), feedbackScore:_safeString(row[COL.FEEDBACK_SCORE-1]),
       fecha:row[0] ? Utilities.formatDate(new Date(row[0]),Session.getScriptTimeZone(),"dd/MM/yyyy HH:mm") : "—" });
   }
   leads.sort((a,b) => { if (a.status==='pendiente_manual' && b.status!=='pendiente_manual') return -1; if (a.status!=='pendiente_manual' && b.status==='pendiente_manual') return 1; return 0; });
   return { leads };
 }
 
-function obtenerSaldosLeads() {
+function obtenerSaldosLeads(token) {
   try {
+    if (!_autorizadoPanel(token)) return { leads: [] };
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
     if (!sheet) return { leads: [] };
     const data = sheet.getDataRange().getValues();
     const leads = [];
     for (let i = 1; i < data.length; i++) {
-      const wa = safeString(data[i][0]);
+      const wa = _safeString(data[i][0]);
       if (!wa) continue;
-      leads.push({ whatsapp: wa, nombre: safeString(data[i][1]), saldo: parseFloat(data[i][LEADS_COL_SALDO-1]) || 0 });
+      leads.push({ whatsapp: wa, nombre: _safeString(data[i][1]), saldo: parseFloat(data[i][LEADS_COL_SALDO-1]) || 0 });
     }
     return { leads };
   } catch(err) { return { leads: [] }; }
 }
 
-function ajustarSaldoDesdePanel(whatsapp, nuevoSaldo) {
+function ajustarSaldoDesdePanel(whatsapp, nuevoSaldo, token) {
   try {
+    if (!_autorizadoPanel(token)) return { ok: false, error: "No autorizado" };
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
     if (!sheet) return { ok: false, error: "No encontré Leads" };
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
-      if (safeString(data[i][0]) === whatsapp) {
+      if (_safeString(data[i][0]) === whatsapp) {
         sheet.getRange(i+1, LEADS_COL_SALDO).setValue(parseFloat(nuevoSaldo) || 0);
         return { ok: true };
       }
@@ -1167,16 +1258,17 @@ function ajustarSaldoDesdePanel(whatsapp, nuevoSaldo) {
   } catch(err) { return { ok: false, error: err.toString() }; }
 }
 
-function obtenerConversacionesActivas() {
+function obtenerConversacionesActivas(token) {
+  if (!_autorizadoPanel(token)) return { conversaciones: [] };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const convsSheet = ss.getSheetByName(CONVERSATIONS_SHEET); const leadsSheet = ss.getSheetByName(LEADS_SHEET);
   if (!convsSheet) return { conversaciones: [] };
   const convsData = convsSheet.getDataRange().getValues(); const leadsData = leadsSheet ? leadsSheet.getDataRange().getValues() : [];
-  const leadsMap = {}; for (let i=1;i<leadsData.length;i++) { const wa=safeString(leadsData[i][0]); if (wa) leadsMap[wa]={nombre:safeString(leadsData[i][1])}; }
+  const leadsMap = {}; for (let i=1;i<leadsData.length;i++) { const wa=_safeString(leadsData[i][0]); if (wa) leadsMap[wa]={nombre:_safeString(leadsData[i][1])}; }
   const conversaciones = [];
   for (let i=1;i<convsData.length;i++) {
-    const wa=safeString(convsData[i][0]); if (!wa) continue;
-    let estado={}; try { estado=JSON.parse(safeString(convsData[i][1]))||{}; } catch(e){}
+    const wa=_safeString(convsData[i][0]); if (!wa) continue;
+    let estado={}; try { estado=JSON.parse(_safeString(convsData[i][1]))||{}; } catch(e){}
     const ua = convsData[i][2] ? Utilities.formatDate(new Date(convsData[i][2]),Session.getScriptTimeZone(),"dd/MM/yyyy HH:mm") : "—";
     const li = leadsMap[wa]||{nombre:""};
     conversaciones.push({ whatsapp:wa, nombre:li.nombre||estado.nombre||wa, paso:estado.paso||"—", ultimaActualizacion:ua });
@@ -1185,19 +1277,20 @@ function obtenerConversacionesActivas() {
   return { conversaciones };
 }
 
-function obtenerChatLogPorWhatsapp(whatsapp) {
+function obtenerChatLogPorWhatsapp(whatsapp, token) {
   try {
+    if (!_autorizadoPanel(token)) return { mensajes: [] };
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog");
     if (!sheet) return { mensajes: [] };
     const data = sheet.getDataRange().getValues();
     const mensajes = [];
     for (let i = 1; i < data.length; i++) {
-      const wa = safeString(data[i][1]);
+      const wa = _safeString(data[i][1]);
       if (wa !== whatsapp) continue;
       const ts = data[i][0];
-      const direccion = safeString(data[i][2]);
-      const tipo = safeString(data[i][3]);
-      const contenido = safeString(data[i][4]);
+      const direccion = _safeString(data[i][2]);
+      const tipo = _safeString(data[i][3]);
+      const contenido = _safeString(data[i][4]);
       if (tipo !== "texto" && tipo !== "video" && tipo !== "video_drive") continue;
       mensajes.push({
         timestamp: ts ? Utilities.formatDate(new Date(ts), Session.getScriptTimeZone(), "dd/MM HH:mm") : "—",
@@ -1209,13 +1302,17 @@ function obtenerChatLogPorWhatsapp(whatsapp) {
   } catch(err) { Logger.log("Error obtenerChatLogPorWhatsapp: " + err); return { mensajes: [] }; }
 }
 
-function enviarMensajeDesdePanel(whatsapp, mensaje) {
-  try { if (!whatsapp||!mensaje) return {ok:false,error:"Numero y mensaje requeridos"}; enviarMensajeWhatsApp(whatsapp,mensaje); return {ok:true}; }
+function enviarMensajeDesdePanel(whatsapp, mensaje, token) {
+  try {
+    if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
+    if (!whatsapp||!mensaje) return {ok:false,error:"Numero y mensaje requeridos"}; _enviarMensajeWhatsApp(whatsapp,mensaje); return {ok:true};
+  }
   catch(err) { Logger.log("Error enviarMensajeDesdePanel: "+err); return {ok:false,error:err.toString()}; }
 }
 
-function obtenerConsultas() {
+function obtenerConsultas(token) {
   try {
+    if (!_autorizadoPanel(token)) return { consultas: [] };
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(CONSULTAS_SHEET);
     const leadsSheet = ss.getSheetByName(LEADS_SHEET);
@@ -1223,18 +1320,18 @@ function obtenerConsultas() {
     const data = sheet.getDataRange().getValues();
     const leadsData = leadsSheet ? leadsSheet.getDataRange().getValues() : [];
     const leadsMap = {};
-    for (let i=1;i<leadsData.length;i++) { const wa=safeString(leadsData[i][0]); if (wa) leadsMap[wa]={nombre:safeString(leadsData[i][1])}; }
+    for (let i=1;i<leadsData.length;i++) { const wa=_safeString(leadsData[i][0]); if (wa) leadsMap[wa]={nombre:_safeString(leadsData[i][1])}; }
     const consultas = [];
     for (let i=1;i<data.length;i++) {
-      const whatsapp = safeString(data[i][1]);
+      const whatsapp = _safeString(data[i][1]);
       const li = leadsMap[whatsapp]||{nombre:""};
       consultas.push({
         rowIndex: i+1,
         timestamp: data[i][0] ? Utilities.formatDate(new Date(data[i][0]),Session.getScriptTimeZone(),"dd/MM/yyyy HH:mm") : "—",
         whatsapp,
-        nombre: li.nombre || safeString(data[i][2]),
-        consulta: safeString(data[i][3]),
-        respondida: safeString(data[i][4])
+        nombre: li.nombre || _safeString(data[i][2]),
+        consulta: _safeString(data[i][3]),
+        respondida: _safeString(data[i][4])
       });
     }
     consultas.sort((a,b) => a.respondida==="no" && b.respondida!=="no" ? -1 : 1);
@@ -1242,8 +1339,9 @@ function obtenerConsultas() {
   } catch(err) { Logger.log("Error obtenerConsultas: "+err); return { consultas: [] }; }
 }
 
-function marcarConsultaRespondida(rowIndex) {
+function marcarConsultaRespondida(rowIndex, token) {
   try {
+    if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONSULTAS_SHEET);
     if (!sheet) return {ok:false,error:"No encontre Consultas"};
     sheet.getRange(rowIndex, 5).setValue("si");
@@ -1251,20 +1349,23 @@ function marcarConsultaRespondida(rowIndex) {
   } catch(err) { return {ok:false,error:err.toString()}; }
 }
 
-function obtenerEjerciciosParaSelector() {
+function obtenerEjerciciosParaSelector(token) {
+  if (!_autorizadoPanel(token)) return [];
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EXERCISES_SHEET); if (!sheet) return [];
   const data = sheet.getDataRange().getValues(); const ejercicios = [];
-  for (let i=1;i<data.length;i++) { const e=rowToEjercicio(data[i]); if (!ejercicioValido(e)) continue; ejercicios.push({id:e.id,nombre:e.nombre,aspecto:e.aspecto,nivel:e.nivel,descripcion:e.instruccion,instruccion:e.instruccion,videoUrl:e.video_url,tipoEjercicio:e.tipo_ejercicio,profesor:e.profesor}); }
+  for (let i=1;i<data.length;i++) { const e=_rowToEjercicio(data[i]); if (!_ejercicioValido(e)) continue; ejercicios.push({id:e.id,nombre:e.nombre,aspecto:e.aspecto,nivel:e.nivel,descripcion:e.instruccion,instruccion:e.instruccion,videoUrl:e.video_url,tipoEjercicio:e.tipo_ejercicio,profesor:e.profesor}); }
   return ejercicios;
 }
-function obtenerEjerciciosCompletos() {
+function obtenerEjerciciosCompletos(token) {
+  if (!_autorizadoPanel(token)) return {ejercicios:[]};
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EXERCISES_SHEET); if (!sheet) return {ejercicios:[]};
   const data = sheet.getDataRange().getValues(); const ejercicios = [];
-  for (let i=1;i<data.length;i++) { const e=rowToEjercicio(data[i]); if (!e.id) continue; ejercicios.push({rowIndex:i+1,id:e.id,nombre:e.nombre,aspecto:e.aspecto,nivel:e.nivel,videoUrl:e.video_url,instruccion:e.instruccion,focoTecnico:e.foco_tecnico,tipoEjercicio:e.tipo_ejercicio,etiqueta1:e.etiqueta_1,etiqueta2:e.etiqueta_2,etiqueta3:e.etiqueta_3,profesor:e.profesor}); }
+  for (let i=1;i<data.length;i++) { const e=_rowToEjercicio(data[i]); if (!e.id) continue; ejercicios.push({rowIndex:i+1,id:e.id,nombre:e.nombre,aspecto:e.aspecto,nivel:e.nivel,videoUrl:e.video_url,instruccion:e.instruccion,focoTecnico:e.foco_tecnico,tipoEjercicio:e.tipo_ejercicio,etiqueta1:e.etiqueta_1,etiqueta2:e.etiqueta_2,etiqueta3:e.etiqueta_3,profesor:e.profesor}); }
   return {ejercicios};
 }
-function guardarEjercicio(datos) {
+function guardarEjercicio(datos, token) {
   try {
+    if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EXERCISES_SHEET); if (!sheet) throw new Error("No encontre la hoja Excercises");
     const row=[datos.id||"",datos.nombre||"",datos.instruccion||"",(datos.aspecto||"").toLowerCase(),(datos.nivel||"").toLowerCase(),datos.videoUrl||"",datos.tipoEjercicio||"",datos.focoTecnico||"",datos.etiqueta1||"",datos.etiqueta2||"",datos.etiqueta3||"",datos.profesor||""];
     if (datos.rowIndex) { sheet.getRange(datos.rowIndex,1,1,row.length).setValues([row]); }
@@ -1272,57 +1373,65 @@ function guardarEjercicio(datos) {
     return {ok:true};
   } catch(err) { Logger.log("Error guardarEjercicio: "+err); return {ok:false,error:err.toString()}; }
 }
-function eliminarEjercicio(rowIndex) {
-  try { const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EXERCISES_SHEET); if (!sheet) throw new Error("No encontre la hoja Excercises"); sheet.deleteRow(rowIndex); return {ok:true}; }
+function eliminarEjercicio(rowIndex, token) {
+  try {
+    if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EXERCISES_SHEET); if (!sheet) throw new Error("No encontre la hoja Excercises"); sheet.deleteRow(rowIndex); return {ok:true};
+  }
   catch(err) { return {ok:false,error:err.toString()}; }
 }
-function guardarPlanProfe(rowIndex, datos) {
+function guardarPlanProfe(rowIndex, datos, token) {
   try {
+    if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET); if (!sheet) throw new Error("No encontre Sesiones");
     sheet.getRange(rowIndex,COL.NOTA_COACH).setValue(datos.notaCoach||""); sheet.getRange(rowIndex,COL.EJERCICIO_APPROACH).setValue(datos.ejercicioApproach||"");
     sheet.getRange(rowIndex,COL.EJERCICIO_FULLSWING_HIERROS).setValue(datos.ejercicioFullswingHierros||""); sheet.getRange(rowIndex,COL.EJERCICIO_FULLSWING_MADERAS).setValue(datos.ejercicioFullswingMaderas||""); sheet.getRange(rowIndex,COL.EJERCICIO_PUTTER).setValue(datos.ejercicioPutter||"");
     return {ok:true};
   } catch(err) { return {ok:false,error:err.toString()}; }
 }
-function guardarAnalisisEnSheets(rowIndex, a1, a2) {
+function guardarAnalisisEnSheets(rowIndex, a1, a2, token) {
   try {
+    if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET); if (!sheet) return {ok:false,error:"No encontre Sesiones"};
     if (a1) { sheet.getRange(rowIndex,COL.ANALISIS_ERROR_IA1).setValue(a1.error_principal||""); sheet.getRange(rowIndex,COL.ANALISIS_AREA_IA1).setValue(a1.area||""); sheet.getRange(rowIndex,COL.ANALISIS_SEVERIDAD_IA1).setValue(a1.severidad||""); sheet.getRange(rowIndex,COL.ANALISIS_RECOMENDACION_IA1).setValue(a1.recomendacion||""); sheet.getRange(rowIndex,COL.ANALISIS_ANGULO_IA1).setValue(a1.angulo||""); }
     if (a2) { sheet.getRange(rowIndex,COL.ANALISIS_ERROR_IA2).setValue(a2.error_principal||""); sheet.getRange(rowIndex,COL.ANALISIS_AREA_IA2).setValue(a2.area||""); sheet.getRange(rowIndex,COL.ANALISIS_SEVERIDAD_IA2).setValue(a2.severidad||""); sheet.getRange(rowIndex,COL.ANALISIS_RECOMENDACION_IA2).setValue(a2.recomendacion||""); sheet.getRange(rowIndex,COL.ANALISIS_ANGULO_IA2).setValue(a2.angulo||""); }
     return {ok:true};
   } catch(err) { return {ok:false,error:err.toString()}; }
 }
-function guardarAnalisisManual(rowIndex, manual1, manual2) {
+function guardarAnalisisManual(rowIndex, manual1, manual2, token) {
   try {
+    if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET); if (!sheet) return {ok:false,error:"No encontre Sesiones"};
     if (manual1!==undefined) sheet.getRange(rowIndex,COL.ANALISIS_MANUAL_1).setValue(manual1); if (manual2!==undefined) sheet.getRange(rowIndex,COL.ANALISIS_MANUAL_2).setValue(manual2);
     return {ok:true};
   } catch(err) { return {ok:false,error:err.toString()}; }
 }
-function generarPlanConIA(lead) {
+function generarPlanConIA(lead, token) {
   try {
+    if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
     const ctx = lead.analisisError1 ? "\n\nAnalisis swing (" + (lead.analisisAngulo1||"video 1") + "):\n- Error: " + lead.analisisError1 + "\n- Recomendacion: " + lead.analisisRecomendacion1 + (lead.analisisError2 ? "\n\nAnalisis 2 (" + (lead.analisisAngulo2||"video 2") + "):\n- Error: " + lead.analisisError2 + "\n- Recomendacion: " + lead.analisisRecomendacion2 : "") : "";
     const prompt = "Sos un coach profesional de golf. Tu tono es amigable y pedagógico para jugadores amateurs. Analizá los datos del alumno y generá un diagnóstico y recomendaciones.\n\nDatos:\n- Nombre: " + lead.nombre + "\n- Handicap: " + lead.handicap + "\n- Nivel: " + lead.nivel + "\n- Comentarios: " + (lead.comentariosAlumno||"no especificado") + ctx + "\n\nGUÍA DE LENGUAJE:\n✔ SÍ PODÉS usar términos naturales del golf: grip, stance, putt, drive, approach, backswing, downswing, follow through, finish.\n❌ EVITÁ jerga compleja. Usá alternativas en español para: casting (\"soltar las manos antes de tiempo\"), over the top (\"tirar el cuerpo encima\"), chicken wing (\"doblar el codo hacia afuera\"), early extension (\"perder la postura\"), sway (\"balanceo lateral\"), scooping (\"cucharear\"), topping (\"pegarle arriba\"), chunk (\"pegarle pesado a la tierra\").\n\nResponde SOLO en JSON sin texto adicional ni markdown:\n{\"diagnostico\":\"...\",\"entrada_en_calor\":{\"descripcion\":\"...\",\"video_url\":\"...\"},\"consideraciones\":\"...\"}";
-    const planJson = llamarOpenAI(prompt, OPENAI_API_KEY);
+    const planJson = _llamarOpenAI(prompt, OPENAI_API_KEY);
     const plan = JSON.parse(planJson.replace(/```json|```/g,'').trim());
     return {ok:true,plan};
   } catch(err) { Logger.log("Error generarPlanConIA: "+err); return {ok:false,error:err.toString()}; }
 }
 
-function generarYEnviarPlanDesdeWeb(rowIndex, planData) {
+function generarYEnviarPlanDesdeWeb(rowIndex, planData, token) {
   try {
+    if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sesionesSheet = ss.getSheetByName(SESIONES_SHEET); const leadsSheet = ss.getSheetByName(LEADS_SHEET);
     const sesionRow = sesionesSheet.getRange(rowIndex,1,1,SESIONES_HEADERS.length).getValues()[0];
-    const whatsapp = safeString(sesionRow[COL.WHATSAPP-1]);
+    const whatsapp = _safeString(sesionRow[COL.WHATSAPP-1]);
     let nombre="", handicap=""; const leadsData = leadsSheet.getDataRange().getValues();
-    for (let i=1;i<leadsData.length;i++) { if (safeString(leadsData[i][0])===whatsapp) { nombre=safeString(leadsData[i][1]); handicap=safeString(leadsData[i][3]); break; } }
-    const htmlPlan = generarHTMLPlan(planData, nombre, handicap, sesionRow);
+    for (let i=1;i<leadsData.length;i++) { if (_safeString(leadsData[i][0])===whatsapp) { nombre=_safeString(leadsData[i][1]); handicap=_safeString(leadsData[i][3]); break; } }
+    const htmlPlan = _generarHTMLPlan(planData, nombre, handicap, sesionRow);
     const blob = Utilities.newBlob(htmlPlan,'text/html','plan.html'); const driveFile = DriveApp.createFile(blob);
     const pdfBlob = driveFile.getAs('application/pdf').setName("Plan_Golfito_"+nombre+"_"+Date.now()+".pdf"); driveFile.setTrashed(true);
     let folder; const folders = DriveApp.getFoldersByName("Golfito_Planes"); folder = folders.hasNext() ? folders.next() : DriveApp.createFolder("Golfito_Planes");
     const pdfFile = folder.createFile(pdfBlob); pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    enviarDocumentoWhatsApp(whatsapp, pdfFile.getId(), "Plan_Golfito_"+nombre+".pdf");
+    _enviarDocumentoWhatsApp(whatsapp, pdfFile.getId(), "Plan_Golfito_"+nombre+".pdf");
     sesionesSheet.getRange(rowIndex,COL.STATUS).setValue("enviado");
     sesionesSheet.getRange(rowIndex,COL.NOTA_COACH).setValue(planData.nota_coach||"");
     sesionesSheet.getRange(rowIndex,COL.CONTENIDO_ENVIADO).setValue(pdfFile.getUrl());
@@ -1340,16 +1449,16 @@ function generarYEnviarPlanDesdeWeb(rowIndex, planData) {
 // ============================================
 // GENERAR HTML DEL PLAN
 // ============================================
-function generarHTMLPlan(plan, nombre, handicap, sesionRow) {
-  const nivel=safeString(sesionRow[COL.NIVEL-1]); const codigoPlan=safeString(sesionRow[COL.CODIGO_PLAN-1]); const numPlan=safeString(sesionRow[COL.NUM_PLAN_ALUMNO-1]);
-  const whatsapp=safeString(sesionRow[COL.WHATSAPP-1]);
+function _generarHTMLPlan(plan, nombre, handicap, sesionRow) {
+  const nivel=_safeString(sesionRow[COL.NIVEL-1]); const codigoPlan=_safeString(sesionRow[COL.CODIGO_PLAN-1]); const numPlan=_safeString(sesionRow[COL.NUM_PLAN_ALUMNO-1]);
+  const whatsapp=_safeString(sesionRow[COL.WHATSAPP-1]);
   const modoAnalisis=plan.modoAnalisis||'ia';
   const manual1=plan.analisisManual1||""; const manual2=plan.analisisManual2||"";
-  const err1=plan.analisisError1||safeString(sesionRow[COL.ANALISIS_ERROR_IA1-1]); const rec1=plan.analisisRecomendacion1||safeString(sesionRow[COL.ANALISIS_RECOMENDACION_IA1-1]); const ang1=plan.analisisAngulo1||safeString(sesionRow[COL.ANALISIS_ANGULO_IA1-1]);
-  const err2=plan.analisisError2||safeString(sesionRow[COL.ANALISIS_ERROR_IA2-1]); const rec2=plan.analisisRecomendacion2||safeString(sesionRow[COL.ANALISIS_RECOMENDACION_IA2-1]); const ang2=plan.analisisAngulo2||safeString(sesionRow[COL.ANALISIS_ANGULO_IA2-1]);
-  const foco=plan.foco||""; const notaCoach=plan.nota_coach||""; const comentariosAlumno=plan.comentariosAlumno||safeString(sesionRow[COL.COMENTARIOS_ALUMNO-1]);
+  const err1=plan.analisisError1||_safeString(sesionRow[COL.ANALISIS_ERROR_IA1-1]); const rec1=plan.analisisRecomendacion1||_safeString(sesionRow[COL.ANALISIS_RECOMENDACION_IA1-1]); const ang1=plan.analisisAngulo1||_safeString(sesionRow[COL.ANALISIS_ANGULO_IA1-1]);
+  const err2=plan.analisisError2||_safeString(sesionRow[COL.ANALISIS_ERROR_IA2-1]); const rec2=plan.analisisRecomendacion2||_safeString(sesionRow[COL.ANALISIS_RECOMENDACION_IA2-1]); const ang2=plan.analisisAngulo2||_safeString(sesionRow[COL.ANALISIS_ANGULO_IA2-1]);
+  const foco=plan.foco||""; const notaCoach=plan.nota_coach||""; const comentariosAlumno=plan.comentariosAlumno||_safeString(sesionRow[COL.COMENTARIOS_ALUMNO-1]);
   const entradaCalorTexto=plan.entrada_en_calor?.descripcion||ENTRADA_CALOR_STD; const consideracionesTexto=plan.consideraciones||CONSIDERACIONES_STD;
-  const indice = whatsapp ? obtenerUltimoIndiceGolfito(whatsapp) : null;
+  const indice = whatsapp ? _obtenerUltimoIndiceGolfito(whatsapp) : null;
   function bloqueIA(error,rec,angulo,etiqueta) {
     if (!error) return "";
     const al=angulo ? " — "+angulo.charAt(0).toUpperCase()+angulo.slice(1) : "";
@@ -1434,7 +1543,7 @@ function generarHTMLPlan(plan, nombre, handicap, sesionRow) {
 // ============================================
 // GEMINI
 // ============================================
-function subirVideoAGemini(fileId) {
+function _subirVideoAGemini(fileId) {
   const file = DriveApp.getFileById(fileId); const blob = file.getBlob(); const mimeType = "video/mp4";
   const initRes = UrlFetchApp.fetch("https://generativelanguage.googleapis.com/upload/v1beta/files?key="+GEMINI_API_KEY, { method:"POST", headers:{"X-Goog-Upload-Protocol":"resumable","X-Goog-Upload-Command":"start","X-Goog-Upload-Header-Content-Type":mimeType,"Content-Type":"application/json"}, payload:JSON.stringify({file:{display_name:file.getName()}}), muteHttpExceptions:true });
   const uploadUrl = initRes.getHeaders()["x-goog-upload-url"];
@@ -1448,15 +1557,15 @@ function subirVideoAGemini(fileId) {
   return fileUri;
 }
 
-function analizarSwingConGemini(driveFileId, contextoAdicional, from) {
+function _analizarSwingConGemini(driveFileId, contextoAdicional, from) {
   try {
-    const fileUri = subirVideoAGemini(driveFileId);
+    const fileUri = _subirVideoAGemini(driveFileId);
     Logger.log("fileUri: " + fileUri);
     const contextoStr = contextoAdicional ? "\n\nEl alumno indicó que quiere que te enfoques en: \"" + contextoAdicional + "\". Tené esto en cuenta en tu análisis." : "";
     // Contexto histórico
     let contextoHistorico = "";
     if (from) {
-      const ultimoAnalisis = obtenerUltimoAnalisis(from);
+      const ultimoAnalisis = _obtenerUltimoAnalisis(from);
       if (ultimoAnalisis) {
         contextoHistorico = "\n\nANÁLISIS ANTERIOR del mismo alumno — error detectado: \"" + ultimoAnalisis.error + "\" (severidad: " + ultimoAnalisis.severidad + "). En tu análisis actual, indicá si este problema persiste, mejoró o empeoró. Incorporá esa comparación en el campo 'detalles'.";
       }
@@ -1474,13 +1583,21 @@ function analizarSwingConGemini(driveFileId, contextoAdicional, from) {
       return {ok:true,analisis};
     }
     throw new Error("Gemini no disponible tras "+MAX_INTENTOS+" intentos. "+lastError);
-  } catch(err) { Logger.log("Error analizarSwingConGemini: "+err); return {ok:false,error:err.toString()}; }
+  } catch(err) { Logger.log("Error _analizarSwingConGemini: "+err); return {ok:false,error:err.toString()}; }
+}
+
+// _analizarSwingConGemini también la usa el flujo automático del bot (vía
+// _procesarAnalisisVideo) sin token, así que no se le puede exigir token
+// directamente. El panel debe llamar a este wrapper en su lugar.
+function analizarSwingPanelConGemini(driveFileId, token) {
+  if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
+  return _analizarSwingConGemini(driveFileId, "", "");
 }
 
 // ============================================
 // MERCADOPAGO
 // ============================================
-function crearPreferenciaPago(whatsapp, nombre, tipo, codigoPlan, montoCustom) {
+function _crearPreferenciaPago(whatsapp, nombre, tipo, codigoPlan, montoCustom) {
   try {
     let monto, titulo;
     if (tipo === "analisis") { monto = montoCustom || COSTO_ANALISIS; titulo = "Analisis de swing — " + nombre; }
@@ -1495,10 +1612,10 @@ function crearPreferenciaPago(whatsapp, nombre, tipo, codigoPlan, montoCustom) {
     if (!data.init_point) throw new Error("MP no devolvio init_point: "+res.getContentText());
     const link = (MODO_TEST_PLAN || MODO_TEST_ANALISIS) ? (data.sandbox_init_point||data.init_point) : data.init_point;
     return {ok:true,link,preferenceId:data.id,externalRef};
-  } catch(err) { Logger.log("Error crearPreferenciaPago: "+err); return {ok:false,error:err.toString()}; }
+  } catch(err) { Logger.log("Error _crearPreferenciaPago: "+err); return {ok:false,error:err.toString()}; }
 }
 
-function procesarPagoMP(paymentId) {
+function _procesarPagoMP(paymentId) {
   try {
     Logger.log("Procesando pago MP: " + paymentId);
     const props = PropertiesService.getScriptProperties();
@@ -1516,16 +1633,16 @@ function procesarPagoMP(paymentId) {
 
     // Detectar si es recarga
     if (codigoPlan.startsWith("RECARGA-")) {
-      acreditarSaldoLead(whatsapp, montoAprobado);
-      const nombre = obtenerNombreLead(whatsapp);
-      const nuevoSaldo = obtenerSaldoLead(whatsapp);
-      enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Recarga confirmada " + nombre + "!\n\uD83D\uDCB0 *Saldo actual: " + formatearSaldo(nuevoSaldo) + " CLP*\n\nYa pod\u00e9s usar tu saldo para analizar swings o solicitar un plan \u26f3");
-      const conv = obtenerConversacion(whatsapp);
-      guardarConversacion(whatsapp, { ...conv, paso: "esperando_menu_principal" });
-      enviarMenuPrincipal(whatsapp, nombre);
+      _acreditarSaldoLead(whatsapp, montoAprobado);
+      const nombre = _obtenerNombreLead(whatsapp);
+      const nuevoSaldo = _obtenerSaldoLead(whatsapp);
+      _enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Recarga confirmada " + nombre + "!\n\uD83D\uDCB0 *Saldo actual: " + _formatearSaldo(nuevoSaldo) + " CLP*\n\nYa pod\u00e9s usar tu saldo para analizar swings o solicitar un plan \u26f3");
+      const conv = _obtenerConversacion(whatsapp);
+      _guardarConversacion(whatsapp, { ...conv, paso: "esperando_menu_principal" });
+      _enviarMenuPrincipal(whatsapp, nombre);
       // Actualizar registro en sesiones
       const ss2 = SpreadsheetApp.getActiveSpreadsheet(); const sh2 = ss2.getSheetByName(SESIONES_SHEET);
-      if (sh2) { const d2=sh2.getDataRange().getValues(); for (let i=d2.length-1;i>=1;i--) { if (safeString(d2[i][COL.WHATSAPP-1])===whatsapp && safeString(d2[i][COL.PAGO_STATUS-1])==="pendiente_recarga") { sh2.getRange(i+1,COL.PAGO_STATUS).setValue("pagado"); sh2.getRange(i+1,COL.PAGO_FECHA).setValue(new Date()); sh2.getRange(i+1,COL.MP_PAYMENT_ID).setValue(String(paymentId)); break; } } }
+      if (sh2) { const d2=sh2.getDataRange().getValues(); for (let i=d2.length-1;i>=1;i--) { if (_safeString(d2[i][COL.WHATSAPP-1])===whatsapp && _safeString(d2[i][COL.PAGO_STATUS-1])==="pendiente_recarga") { sh2.getRange(i+1,COL.PAGO_STATUS).setValue("pagado"); sh2.getRange(i+1,COL.PAGO_FECHA).setValue(new Date()); sh2.getRange(i+1,COL.MP_PAYMENT_ID).setValue(String(paymentId)); break; } } }
       Logger.log("Recarga procesada OK para: " + whatsapp);
       return;
     }
@@ -1533,39 +1650,40 @@ function procesarPagoMP(paymentId) {
     const ss = SpreadsheetApp.getActiveSpreadsheet(); const sheet = ss.getSheetByName(SESIONES_SHEET); if (!sheet) return;
     const data = sheet.getDataRange().getValues();
     for (let i=1;i<data.length;i++) {
-      const rowWa=safeString(data[i][COL.WHATSAPP-1]); const rowCodigo=safeString(data[i][COL.CODIGO_PLAN-1]); const rowStatus=safeString(data[i][COL.PAGO_STATUS-1]);
+      const rowWa=_safeString(data[i][COL.WHATSAPP-1]); const rowCodigo=_safeString(data[i][COL.CODIGO_PLAN-1]); const rowStatus=_safeString(data[i][COL.PAGO_STATUS-1]);
       if (rowWa!==whatsapp) continue; if (rowCodigo && rowCodigo!==codigoPlan) continue; if (rowStatus==="pagado") continue;
       sheet.getRange(i+1,COL.PAGO_STATUS).setValue("pagado"); sheet.getRange(i+1,COL.PAGO_FECHA).setValue(new Date()); sheet.getRange(i+1,COL.PAGO_MONTO).setValue(montoAprobado); sheet.getRange(i+1,COL.MP_PAYMENT_ID).setValue(String(paymentId));
-      const ejvsplan = safeString(data[i][COL.EJVSPLAN-1]); const conv = obtenerConversacion(whatsapp); const nombre = obtenerNombreLead(whatsapp)||conv.nombre||"";
+      const ejvsplan = _safeString(data[i][COL.EJVSPLAN-1]); const conv = _obtenerConversacion(whatsapp); const nombre = _obtenerNombreLead(whatsapp)||conv.nombre||"";
       if (ejvsplan==="2") {
-        enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Pago confirmado "+nombre+"! Analizando tu swing con IA, dame un momento...");
-        const convConVideo = { ...conv, paso: "analizando_video", video_url1: safeString(data[i][COL.VIDEO_URL1-1]) || conv.video_url1 || "", ejvsplan: "2" };
-        guardarConversacion(whatsapp, convConVideo); procesarAnalisisVideo(whatsapp, convConVideo, false);
+        _enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Pago confirmado "+nombre+"! Analizando tu swing con IA, dame un momento...");
+        const convConVideo = { ...conv, paso: "analizando_video", video_url1: _safeString(data[i][COL.VIDEO_URL1-1]) || conv.video_url1 || "", ejvsplan: "2" };
+        _guardarConversacion(whatsapp, convConVideo); _procesarAnalisisVideo(whatsapp, convConVideo, false);
       } else if (ejvsplan==="3") {
-        enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Pago confirmado "+nombre+"! \u26f3 Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1.");
-        const perfil={nivel:safeString(data[i][COL.NIVEL-1]),aspecto:safeString(data[i][COL.ASPECTO-1]),tiempo:"45 minutos"};
-        notificarNuevoPlan(nombre,whatsapp,perfil,safeString(data[i][COL.VIDEO_URL1-1]),safeString(data[i][COL.COMENTARIOS_ALUMNO-1]));
+        _enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Pago confirmado "+nombre+"! \u26f3 Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1.");
+        const perfil={nivel:_safeString(data[i][COL.NIVEL-1]),aspecto:_safeString(data[i][COL.ASPECTO-1]),tiempo:"45 minutos"};
+        _notificarNuevoPlan(nombre,whatsapp,perfil,_safeString(data[i][COL.VIDEO_URL1-1]),_safeString(data[i][COL.COMENTARIOS_ALUMNO-1]));
         sheet.getRange(i+1,COL.STATUS).setValue("pendiente_manual");
       }
       Logger.log("Pago procesado OK para: "+whatsapp); return;
     }
     Logger.log("No se encontro sesion para: "+externalRef);
-  } catch(err) { Logger.log("Error procesarPagoMP: "+err); }
+  } catch(err) { Logger.log("Error _procesarPagoMP: "+err); }
 }
 
-function procesarReintegroDesdePanel(rowIndex) {
+function procesarReintegroDesdePanel(rowIndex, token) {
   try {
+    if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET); if (!sheet) return {ok:false,error:"No encontre Sesiones"};
     const row = sheet.getRange(rowIndex,1,1,SESIONES_HEADERS.length).getValues()[0];
-    const paymentId = safeString(row[COL.MP_PAYMENT_ID-1]); const whatsapp = safeString(row[COL.WHATSAPP-1]); const nombre = obtenerNombreLead(whatsapp);
+    const paymentId = _safeString(row[COL.MP_PAYMENT_ID-1]); const whatsapp = _safeString(row[COL.WHATSAPP-1]); const nombre = _obtenerNombreLead(whatsapp);
     if (!paymentId) return {ok:false,error:"No hay payment_id registrado para esta sesion"};
-    const res = procesarReintegroMP(paymentId, null);
-    if (res.ok) { sheet.getRange(rowIndex,COL.PAGO_STATUS).setValue("reintegrado"); enviarMensajeWhatsApp(whatsapp,"Hola "+nombre+" \u26f3 Te confirmamos que procesamos el reintegro de tu pago. En breve lo ver\u00e1s reflejado en tu cuenta."); }
+    const res = _procesarReintegroMP(paymentId, null);
+    if (res.ok) { sheet.getRange(rowIndex,COL.PAGO_STATUS).setValue("reintegrado"); _enviarMensajeWhatsApp(whatsapp,"Hola "+nombre+" \u26f3 Te confirmamos que procesamos el reintegro de tu pago. En breve lo ver\u00e1s reflejado en tu cuenta."); }
     return res;
   } catch(err) { return {ok:false,error:err.toString()}; }
 }
 
-function verificarPagoAprobado(externalRef) {
+function _verificarPagoAprobado(externalRef) {
   try {
     const res = UrlFetchApp.fetch("https://api.mercadopago.com/v1/payments/search?external_reference="+encodeURIComponent(externalRef)+"&sort=date_created&criteria=desc&limit=1", {headers:{"Authorization":"Bearer "+MP_ACCESS_TOKEN},muteHttpExceptions:true});
     const data = JSON.parse(res.getContentText()); const resultados = data.results||[];
@@ -1573,10 +1691,10 @@ function verificarPagoAprobado(externalRef) {
     const pago = resultados[0];
     if (pago.status==="approved") return {ok:true,paymentId:pago.id,monto:pago.transaction_amount};
     return {ok:false,motivo:pago.status};
-  } catch(err) { Logger.log("Error verificarPagoAprobado: "+err); return {ok:false,motivo:"error",error:err.toString()}; }
+  } catch(err) { Logger.log("Error _verificarPagoAprobado: "+err); return {ok:false,motivo:"error",error:err.toString()}; }
 }
 
-function procesarReintegroMP(paymentId, monto) {
+function _procesarReintegroMP(paymentId, monto) {
   try {
     const payload = monto ? {amount:parseFloat(monto)} : {};
     const res = UrlFetchApp.fetch("https://api.mercadopago.com/v1/payments/"+paymentId+"/refunds", {method:"POST",headers:{"Authorization":"Bearer "+MP_ACCESS_TOKEN,"Content-Type":"application/json"},payload:JSON.stringify(payload),muteHttpExceptions:true});
@@ -1589,85 +1707,85 @@ function procesarReintegroMP(paymentId, monto) {
 // ============================================
 // HELPERS
 // ============================================
-function obtenerUltimosVideosSesion(from) {
+function _obtenerUltimosVideosSesion(from) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET); if (!sheet) return {url1:"",url2:""};
   const data = sheet.getDataRange().getValues();
   for (let i=data.length-1;i>=1;i--) {
-    if (safeString(data[i][COL.WHATSAPP-1])!==from) continue;
-    const url1=safeString(data[i][COL.VIDEO_URL1-1]);
-    const url2=safeString(data[i][COL.VIDEO_URL2-1]);
+    if (_safeString(data[i][COL.WHATSAPP-1])!==from) continue;
+    const url1=_safeString(data[i][COL.VIDEO_URL1-1]);
+    const url2=_safeString(data[i][COL.VIDEO_URL2-1]);
     if (url1||url2) return {url1,url2};
   }
   return {url1:"",url2:""};
 }
-function sanitizarNombre(nombre) { return safeString(nombre).replace(/[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ\s]/g,'').split(' ')[0].replace(/^\w/,c=>c.toUpperCase()); }
-function seleccionarEjercicios(perfil, maxEjercicios, ejerciciosExcluidos=[]) {
+function _sanitizarNombre(nombre) { return _safeString(nombre).replace(/[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ\s]/g,'').split(' ')[0].replace(/^\w/,c=>c.toUpperCase()); }
+function _seleccionarEjercicios(perfil, maxEjercicios, ejerciciosExcluidos=[]) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EXERCISES_SHEET); if (!sheet) throw new Error("No encontre "+EXERCISES_SHEET);
   const data = sheet.getDataRange().getValues(); if (data.length<2) return [];
-  const ejercicios=[]; const pa=normalizeText(perfil.aspecto); const pn=normalizeText(perfil.nivel);
-  for (let i=1;i<data.length;i++) { const e=rowToEjercicio(data[i]); if (!ejercicioValido(e)) continue; if (ejerciciosExcluidos.includes(e.id)) continue; if (e.aspecto===pa && e.nivel===pn) ejercicios.push(e); }
+  const ejercicios=[]; const pa=_normalizeText(perfil.aspecto); const pn=_normalizeText(perfil.nivel);
+  for (let i=1;i<data.length;i++) { const e=_rowToEjercicio(data[i]); if (!_ejercicioValido(e)) continue; if (ejerciciosExcluidos.includes(e.id)) continue; if (e.aspecto===pa && e.nivel===pn) ejercicios.push(e); }
   return ejercicios.slice(0,maxEjercicios);
 }
-function rowToEjercicio(row) { return {id:safeString(row[0]),nombre:safeString(row[1]),instruccion:safeString(row[2]),aspecto:normalizeText(row[3]),nivel:normalizeText(row[4]),video_url:safeString(row[5]),tipo_ejercicio:safeString(row[6]),foco_tecnico:safeString(row[7]),etiqueta_1:safeString(row[8]),etiqueta_2:safeString(row[9]),etiqueta_3:safeString(row[10]),profesor:safeString(row[11])}; }
-function ejercicioValido(e) { return e.id && e.nombre && e.nombre!=="pendiente" && e.aspecto!=="pendiente" && e.nivel!=="pendiente" && e.video_url && e.video_url!=="pendiente"; }
-function buildPromptConEjercicios({nombre,perfil,ejercicios}) {
+function _rowToEjercicio(row) { return {id:_safeString(row[0]),nombre:_safeString(row[1]),instruccion:_safeString(row[2]),aspecto:_normalizeText(row[3]),nivel:_normalizeText(row[4]),video_url:_safeString(row[5]),tipo_ejercicio:_safeString(row[6]),foco_tecnico:_safeString(row[7]),etiqueta_1:_safeString(row[8]),etiqueta_2:_safeString(row[9]),etiqueta_3:_safeString(row[10]),profesor:_safeString(row[11])}; }
+function _ejercicioValido(e) { return e.id && e.nombre && e.nombre!=="pendiente" && e.aspecto!=="pendiente" && e.nivel!=="pendiente" && e.video_url && e.video_url!=="pendiente"; }
+function _buildPromptConEjercicios({nombre,perfil,ejercicios}) {
   const e=ejercicios[0];
   return "Actua como un coach profesional de golf para jugadores amateurs. Tu tono es amigable, directo y pedagógico.\n\nJugador:\n- Nombre: "+(nombre||"Jugador")+"\n- Nivel: "+perfil.nivel+"\n- Aspecto a trabajar: "+perfil.aspecto+"\n\nEl ejercicio asignado es: *"+e.nombre+"*\nInstruccion base: "+e.instruccion+"\n\nEscriba una explicacion simple y clara de como hacer este ejercicio, en exactamente 2 lineas. No repitas el nombre del ejercicio ni la instruccion base. No menciones la duracion. Usa asteriscos simples para negrita (*palabra*). Tono directo y accionable.\n\nGUÍA DE LENGUAJE:\n✔ SÍ PODÉS usar términos naturales del golf: grip, stance, putt, drive, approach, backswing, downswing, follow through, finish.\n❌ EVITÁ jerga compleja. Usá alternativas en español para: casting (\"soltar las manos antes de tiempo\"), over the top (\"tirar el cuerpo encima\"), chicken wing (\"doblar el codo hacia afuera\"), early extension (\"perder la postura\"), sway (\"balanceo lateral\"), scooping (\"cucharear\"), topping (\"pegarle arriba\"), chunk (\"pegarle pesado a la tierra\").";
 }
-function llamarOpenAI(prompt, apiKey) {
+function _llamarOpenAI(prompt, apiKey) {
   const response = UrlFetchApp.fetch("https://api.openai.com/v1/responses", {method:"post",muteHttpExceptions:true,headers:{"Authorization":"Bearer "+apiKey,"Content-Type":"application/json"},payload:JSON.stringify({model:"gpt-4o-mini",input:prompt})});
   const statusCode=response.getResponseCode(); const body=response.getContentText();
   if (statusCode<200||statusCode>=300) throw new Error("Error OpenAI "+statusCode+": "+body);
   const data=JSON.parse(body); let text="";
   if (data.output_text) { text=data.output_text; }
   else if (Array.isArray(data.output)) { for (const item of data.output) { if (Array.isArray(item.content)) { for (const part of item.content) { if (part.text) text+=part.text; } } } }
-  text=safeString(text).trim().replace(/\*\*([^*]+)\*\*/g,'*$1*');
+  text=_safeString(text).trim().replace(/\*\*([^*]+)\*\*/g,'*$1*');
   if (!text) throw new Error("OpenAI respondio sin texto utilizable.");
   return text;
 }
-function construirMensajeFinal(plan, ejercicios) {
+function _construirMensajeFinal(plan, ejercicios) {
   const e=ejercicios[0];
   return "\u26f3 *"+e.nombre+"*\n_"+e.instruccion+"_\n\n"+plan+"\n\n\ud83c\udfa5 "+e.video_url+"\n\n\ud83d\udca1 *Tip:* Enfocate en calidad antes que cantidad.\n\ud83c\udf10 _Activa los subtitulos en tu idioma en el video de YouTube._\n\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nCualquier otra consulta escribinos \u26f3";
 }
-function construirMensajePendienteManual(nombre, perfil) { return "Hola "+(nombre||"")+" \u26f3 Recib\u00ed tu pedido. Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1."; }
-function construirMensajeUpsell(nombre) { return "Hola "+(nombre||"")+" \u26f3\n\nYa usaste tu ejercicio gratuito.\n\nPara seguir mejorando:\n- \ud83c\udfa5 *An\u00e1lisis de video con IA* \u2014 $ 5.000\n- \ud83d\udccb *Plan personalizado* \u2014 $ 15.000\n\nCualquier otra consulta escribinos \u26f3"; }
-function obtenerEjerciciosYaEnviados(sesiones, whatsapp) {
+function _construirMensajePendienteManual(nombre, perfil) { return "Hola "+(nombre||"")+" \u26f3 Recib\u00ed tu pedido. Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1."; }
+function _construirMensajeUpsell(nombre) { return "Hola "+(nombre||"")+" \u26f3\n\nYa usaste tu ejercicio gratuito.\n\nPara seguir mejorando:\n- \ud83c\udfa5 *An\u00e1lisis de video con IA* \u2014 $ 5.000\n- \ud83d\udccb *Plan personalizado* \u2014 $ 15.000\n\nCualquier otra consulta escribinos \u26f3"; }
+function _obtenerEjerciciosYaEnviados(sesiones, whatsapp) {
   const h=[];
-  for (let i=1;i<sesiones.length;i++) { const wa=safeString(sesiones[i][COL.WHATSAPP-1]); const st=safeString(sesiones[i][COL.STATUS-1]).toLowerCase(); const eid=safeString(sesiones[i][COL.EJERCICIO_GRATIS_ID-1]); const ejv=safeString(sesiones[i][COL.EJVSPLAN-1]); if (wa===whatsapp && st==="enviado" && ejv==="1" && eid && eid!=="UPSELL" && eid!=="SIN_EJERCICIO") h.push(eid); }
+  for (let i=1;i<sesiones.length;i++) { const wa=_safeString(sesiones[i][COL.WHATSAPP-1]); const st=_safeString(sesiones[i][COL.STATUS-1]).toLowerCase(); const eid=_safeString(sesiones[i][COL.EJERCICIO_GRATIS_ID-1]); const ejv=_safeString(sesiones[i][COL.EJVSPLAN-1]); if (wa===whatsapp && st==="enviado" && ejv==="1" && eid && eid!=="UPSELL" && eid!=="SIN_EJERCICIO") h.push(eid); }
   return h;
 }
-function truncateForWhatsApp(text, maxLen) { const clean=safeString(text).trim(); if (clean.length<=maxLen) return clean; return clean.slice(0,maxLen-40)+"\n\n[Mensaje recortado por longitud]"; }
-function safeString(value) { if (value===null||value===undefined) return ""; return String(value).trim(); }
-function normalizeText(value) { return safeString(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
-function mapNivel(value, aspecto) {
-  const v=safeString(value).toLowerCase(); const an=normalizeText(aspecto); const hcp=Number(v);
+function _truncateForWhatsApp(text, maxLen) { const clean=_safeString(text).trim(); if (clean.length<=maxLen) return clean; return clean.slice(0,maxLen-40)+"\n\n[Mensaje recortado por longitud]"; }
+function _safeString(value) { if (value===null||value===undefined) return ""; return String(value).trim(); }
+function _normalizeText(value) { return _safeString(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); }
+function _mapNivel(value, aspecto) {
+  const v=_safeString(value).toLowerCase(); const an=_normalizeText(aspecto); const hcp=Number(v);
   if (an==="primeras veces"||v.includes("primeras")||v.includes("no tengo")||v.includes("sin handicap")) return "Primeras veces";
   if (!isNaN(hcp)&&v!=="") { if (hcp<10) return "Avanzado"; if (hcp<=20) return "Intermedio"; return "Principiante"; }
   if (v.includes("avan")) return "Avanzado"; if (v.includes("inter")) return "Intermedio"; return "Principiante";
 }
-function mapAspectoLead(value) {
-  const v=safeString(value).toLowerCase();
+function _mapAspectoLead(value) {
+  const v=_safeString(value).toLowerCase();
   const map={"1":"Driver","2":"Hierros","3":"Approach","4":"Putting","5":"Bunker","6":"Primeras veces","driver":"Driver","hierros":"Hierros","approach":"Approach","putting":"Putting","bunker":"Bunker","primeras veces":"Primeras veces","primeras":"Primeras veces","otro":"Otro"};
   return map[v]||"Otro";
 }
-function mapTipoSolicitud(value) { const v=safeString(value).toLowerCase(); if (v==="3"||v.includes("plan")) return "plan_personalizado"; if (v==="2"||v.includes("analisis")||v.includes("análisis")||v.includes("video")) return "analisis_video"; return "ejercicio_gratis"; }
-function mapTipoSolicitudPorEjvsplan(value) { const v=safeString(value); if (v==="3") return "plan_personalizado"; if (v==="2") return "analisis_video"; return "ejercicio_gratis"; }
+function _mapTipoSolicitud(value) { const v=_safeString(value).toLowerCase(); if (v==="3"||v.includes("plan")) return "plan_personalizado"; if (v==="2"||v.includes("analisis")||v.includes("análisis")||v.includes("video")) return "analisis_video"; return "ejercicio_gratis"; }
+function _mapTipoSolicitudPorEjvsplan(value) { const v=_safeString(value); if (v==="3") return "plan_personalizado"; if (v==="2") return "analisis_video"; return "ejercicio_gratis"; }
 
 // ============================================
 // ÍNDICE GOLFITO
 // ============================================
-function procesarIndiceGolfito(from, driveUrl, conv) {
+function _procesarIndiceGolfito(from, driveUrl, conv) {
   try {
     const match = driveUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (!match) throw new Error("No se pudo obtener el ID del video");
-    const resultado = analizarIndiceConGemini(match[1]);
+    const resultado = _analizarIndiceConGemini(match[1]);
     if (!resultado.ok) throw new Error(resultado.error);
     const s = resultado.scores;
     const scoreTotal = Math.round((s.grip + s.postura + s.backswing + s.downswing + s.impacto + s.follow_through + s.transferencia_peso) / 7 * 25);
     // Guardar en sheet
-    guardarIndiceGolfito(from, scoreTotal, s, driveUrl);
+    _guardarIndiceGolfito(from, scoreTotal, s, driveUrl);
     // Buscar índice anterior
-    const anterior = obtenerIndiceAnterior(from);
+    const anterior = _obtenerIndiceAnterior(from);
     const estrellas = n => "⭐".repeat(n) + "☆".repeat(4-n);
     let msg = "\uD83D\uDCCA *\u00cdndice Golfito: " + scoreTotal + "/100*\n\n";
     msg += "Grip " + estrellas(s.grip) + "\n";
@@ -1682,22 +1800,22 @@ function procesarIndiceGolfito(from, driveUrl, conv) {
       const signo = diff > 0 ? "+" : "";
       msg += "\n\n\uD83D\uDCC8 *Evoluci\u00f3n:* " + anterior + " \u2192 " + scoreTotal + " (" + signo + diff + ")";
     }
-    enviarMensajeWhatsApp(from, msg);
-    const nombre = conv.nombre || obtenerNombreLead(from);
-    guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
-    enviarMenuPrincipal(from, nombre);
+    _enviarMensajeWhatsApp(from, msg);
+    const nombre = conv.nombre || _obtenerNombreLead(from);
+    _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+    _enviarMenuPrincipal(from, nombre);
   } catch(err) {
-    Logger.log("Error procesarIndiceGolfito: " + err);
-    const nombre = conv.nombre || obtenerNombreLead(from);
-    enviarMensajeWhatsApp(from, "Estamos experimentando alta demanda. Intent\u00e1 de nuevo en unos minutos \u26f3");
-    guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
-    enviarMenuPrincipal(from, nombre);
+    Logger.log("Error _procesarIndiceGolfito: " + err);
+    const nombre = conv.nombre || _obtenerNombreLead(from);
+    _enviarMensajeWhatsApp(from, "Estamos experimentando alta demanda. Intent\u00e1 de nuevo en unos minutos \u26f3");
+    _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+    _enviarMenuPrincipal(from, nombre);
   }
 }
 
-function analizarIndiceConGemini(driveFileId) {
+function _analizarIndiceConGemini(driveFileId) {
   try {
-    const fileUri = subirVideoAGemini(driveFileId);
+    const fileUri = _subirVideoAGemini(driveFileId);
     const prompt = "Sos un coach profesional de golf evaluando el swing de un jugador amateur. Tu tarea es evaluar 7 dimensiones técnicas del swing con un score del 1 al 4 cada una (1=muy deficiente, 2=deficiente, 3=aceptable, 4=bueno).\n\nDimensiones a evaluar:\n1. grip — posición y presión de las manos en el palo\n2. postura — alineación, flexión de rodillas, inclinación de cadera\n3. backswing — plano, rotación de hombros, extensión de brazos\n4. downswing — secuencia de bajada, plano de ataque\n5. impacto — posición en el momento de contacto\n6. follow_through — extensión post-impacto\n7. transferencia_peso — desplazamiento del peso entre backswing e impacto\n\nSi el ángulo de cámara no permite evaluar alguna dimensión con certeza, asigná 2 como valor neutro.\n\nRespondé EXCLUSIVAMENTE con JSON válido sin texto adicional ni backticks:\n{\"grip\":3,\"postura\":2,\"backswing\":3,\"downswing\":2,\"impacto\":2,\"follow_through\":3,\"transferencia_peso\":2}";
     const MAX_INTENTOS = 5; const ESPERA_MS = [5000,10000,20000,30000,40000]; let lastError = "";
     for (let intento = 0; intento < MAX_INTENTOS; intento++) {
@@ -1715,19 +1833,19 @@ function analizarIndiceConGemini(driveFileId) {
       return { ok: true, scores };
     }
     throw new Error("Gemini no disponible tras "+MAX_INTENTOS+" intentos. "+lastError);
-  } catch(err) { Logger.log("Error analizarIndiceConGemini: "+err); return { ok: false, error: err.toString() }; }
+  } catch(err) { Logger.log("Error _analizarIndiceConGemini: "+err); return { ok: false, error: err.toString() }; }
 }
 
-function guardarIndiceGolfito(from, scoreTotal, scores, videoUrl) {
+function _guardarIndiceGolfito(from, scoreTotal, scores, videoUrl) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(INDICE_SHEET);
     if (!sheet) { sheet = ss.insertSheet(INDICE_SHEET); sheet.appendRow(INDICE_HEADERS); }
     sheet.appendRow([new Date(), from, scoreTotal, scores.grip, scores.postura, scores.backswing, scores.downswing, scores.impacto, scores.follow_through, scores.transferencia_peso, videoUrl]);
-  } catch(err) { Logger.log("Error guardarIndiceGolfito: "+err); }
+  } catch(err) { Logger.log("Error _guardarIndiceGolfito: "+err); }
 }
 
-function obtenerIndiceAnterior(from) {
+function _obtenerIndiceAnterior(from) {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(INDICE_SHEET);
     if (!sheet) return null;
@@ -1735,7 +1853,7 @@ function obtenerIndiceAnterior(from) {
     // Buscar de atrás hacia adelante, saltear el último (que acabamos de guardar)
     let encontrados = 0;
     for (let i = data.length - 1; i >= 1; i--) {
-      if (safeString(data[i][1]) === from) {
+      if (_safeString(data[i][1]) === from) {
         encontrados++;
         if (encontrados === 2) return parseInt(data[i][2]) || null;
       }
@@ -1745,13 +1863,13 @@ function obtenerIndiceAnterior(from) {
 }
 
 // Devuelve el registro mas reciente del Indice Golfito de un alumno (para mostrar en el PDF del plan)
-function obtenerUltimoIndiceGolfito(from) {
+function _obtenerUltimoIndiceGolfito(from) {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(INDICE_SHEET);
     if (!sheet) return null;
     const data = sheet.getDataRange().getValues();
     for (let i = data.length - 1; i >= 1; i--) {
-      if (safeString(data[i][1]) !== from) continue;
+      if (_safeString(data[i][1]) !== from) continue;
       return {
         timestamp: data[i][0],
         scoreTotal: parseInt(data[i][2]) || 0,
@@ -1765,23 +1883,31 @@ function obtenerUltimoIndiceGolfito(from) {
       };
     }
     return null;
-  } catch(err) { Logger.log("Error obtenerUltimoIndiceGolfito: " + err); return null; }
+  } catch(err) { Logger.log("Error _obtenerUltimoIndiceGolfito: " + err); return null; }
+}
+
+// _obtenerUltimoIndiceGolfito también la usa _generarHTMLPlan internamente
+// (ya protegido por el token de generarYEnviarPlanDesdeWeb), así que no se le
+// puede exigir token directamente. El panel debe llamar a este wrapper.
+function obtenerIndiceGolfitoPanel(from, token) {
+  if (!_autorizadoPanel(token)) return null;
+  return _obtenerUltimoIndiceGolfito(from);
 }
 
 // ============================================
 // CONTEXTO HISTÓRICO PARA ANÁLISIS
 // ============================================
-function obtenerUltimoAnalisis(from) {
+function _obtenerUltimoAnalisis(from) {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
     if (!sheet) return null;
     const data = sheet.getDataRange().getValues();
     for (let i = data.length - 1; i >= 1; i--) {
-      if (safeString(data[i][COL.WHATSAPP-1]) !== from) continue;
-      if (safeString(data[i][COL.EJVSPLAN-1]) !== "2") continue;
-      const error1 = safeString(data[i][COL.ANALISIS_ERROR_IA1-1]);
-      const sev1 = safeString(data[i][COL.ANALISIS_SEVERIDAD_IA1-1]);
-      const rec1 = safeString(data[i][COL.ANALISIS_RECOMENDACION_IA1-1]);
+      if (_safeString(data[i][COL.WHATSAPP-1]) !== from) continue;
+      if (_safeString(data[i][COL.EJVSPLAN-1]) !== "2") continue;
+      const error1 = _safeString(data[i][COL.ANALISIS_ERROR_IA1-1]);
+      const sev1 = _safeString(data[i][COL.ANALISIS_SEVERIDAD_IA1-1]);
+      const rec1 = _safeString(data[i][COL.ANALISIS_RECOMENDACION_IA1-1]);
       if (!error1) continue;
       return { error: error1, severidad: sev1, recomendacion: rec1 };
     }
@@ -1792,16 +1918,23 @@ function obtenerUltimoAnalisis(from) {
 // ============================================
 // TESTS Y UTILIDADES
 // ============================================
-function testDrive() { let f; const fs=DriveApp.getFoldersByName("Golfito_Videos"); f=fs.hasNext()?fs.next():DriveApp.createFolder("Golfito_Videos"); Logger.log("Drive OK: "+f.getName()); }
-function testEnvioMeta() { enviarMensajeWhatsApp("56975466327","Test desde Apps Script ✅"); }
-function listarModelosGemini() { const res=UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models?key="+GEMINI_API_KEY,{muteHttpExceptions:true}); const data=JSON.parse(res.getContentText()); Logger.log(data.models?.map(m=>m.name).join("\n")||"Sin modelos"); }
-function testLogDirecto() { const sheet=SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog"); Logger.log("Sheet: "+(sheet?"SI":"NO")); sheet.appendRow([new Date(),"test123","saliente","texto","prueba directa"]); Logger.log("OK"); }
-function testGeminiV7() { const resultado=analizarSwingConGemini("10EFfw5W9gInxH4tDdPugTNVp2-Fnyztv",""); Logger.log(JSON.stringify(resultado)); }
+function _testDrive() { let f; const fs=DriveApp.getFoldersByName("Golfito_Videos"); f=fs.hasNext()?fs.next():DriveApp.createFolder("Golfito_Videos"); Logger.log("Drive OK: "+f.getName()); }
+function _testEnvioMeta() { _enviarMensajeWhatsApp("56975466327","Test desde Apps Script ✅"); }
+function _listarModelosGemini() { const res=UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models?key="+GEMINI_API_KEY,{muteHttpExceptions:true}); const data=JSON.parse(res.getContentText()); Logger.log(data.models?.map(m=>m.name).join("\n")||"Sin modelos"); }
+function _testLogDirecto() { const sheet=SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog"); Logger.log("Sheet: "+(sheet?"SI":"NO")); sheet.appendRow([new Date(),"test123","saliente","texto","prueba directa"]); Logger.log("OK"); }
+function _testGeminiV7() { const resultado=_analizarSwingConGemini("10EFfw5W9gInxH4tDdPugTNVp2-Fnyztv",""); Logger.log(JSON.stringify(resultado)); }
+// Esta función tiene un trigger de tiempo, así que su nombre debe quedar público
+// (Apps Script no permite que un trigger apunte a una función con "_"). Por eso
+// NO se borran acá las claves "mp_processed_*": si cualquiera pudiera llamar a esta
+// función (es pública = invocable por google.script.run por cualquier visitante del
+// webapp) y luego reenviar el mismo data.id de un pago ya aprobado a doGet/doPost,
+// se podría acreditar saldo dos veces por el mismo pago real. Los payment_id son
+// únicos y de bajo volumen, así que dejarlos para siempre no genera el problema de
+// límite de 500 propiedades que sí tienen "media_processed_" (uno por video).
 function limpiarCacheAnalisis() {
   const props=PropertiesService.getScriptProperties(); const keys=props.getKeys(); let eliminadas=0;
   keys.forEach(k => {
     if (k.startsWith('analisis_')||k.startsWith('media_processed_')) { props.deleteProperty(k); eliminadas++; }
-    if (k.startsWith('mp_processed_')) { const ts=props.getProperty(k); if (!ts||Date.now()-parseInt(ts)>24*60*60*1000) { props.deleteProperty(k); eliminadas++; } }
     if (k.startsWith('panel_token_')) { const ts=props.getProperty(k); if (!ts||Date.now()-parseInt(ts)>8*60*60*1000) { props.deleteProperty(k); eliminadas++; } }
   });
   Logger.log('Limpieza: '+eliminadas+' entradas eliminadas');
