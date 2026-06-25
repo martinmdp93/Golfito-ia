@@ -24,7 +24,7 @@ const VERIFY_TOKEN = "golfito_verify_123";
 const MODO_TEST_ANALISIS = PropertiesService.getScriptProperties().getProperty("MODO_TEST_ANALISIS") === "true";
 const MODO_TEST_PLAN = PropertiesService.getScriptProperties().getProperty("MODO_TEST_PLAN") === "true";
 
-const COSTO_ANALISIS = 5000;
+const COSTO_ANALISIS = 3500;
 const COSTO_PLAN = 15000;
 
 const ENTRADA_CALOR_STD = "Empeza con 5 minutos de movilidad articular (hombros, caderas y munecas). Tira 10-15 chips cortos para activar el tacto. Luego hace 5-8 swings completos a medio ritmo antes de arrancar con los ejercicios.";
@@ -297,7 +297,7 @@ function _enviarMenuPrincipal(from, nombre) {
     "\u00bfCon qu\u00e9 te puedo ayudar?\n\n" +
     "1\ufe0f\u20e3 *Ejercicio gratis*\n" +
     "2\ufe0f\u20e3 *\u00cdndice Golfito: califica tu swing gratis*\n" +
-    "3\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 5.000\n" +
+    "3\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 3.500\n" +
     "4\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000\n" +
     "5\ufe0f\u20e3 *Sugerir equipamiento* \uD83D\uDEA7\n" +
     "6\ufe0f\u20e3 *Actualizar mis datos*\n" +
@@ -588,7 +588,7 @@ function _procesarMensajeEntrante(from, text) {
       _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", handicap: text }); return;
     }
     if (paso === "esperando_aspecto") {
-      _enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s hacer?\n\n1\ufe0f\u20e3 *Ejercicio gratis* \u2014 te mando uno ahora\n2\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 5.000\n3\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000");
+      _enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s hacer?\n\n1\ufe0f\u20e3 *Ejercicio gratis* \u2014 te mando uno ahora\n2\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 3.500\n3\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000");
       _guardarConversacion(from, { ...conv, paso: "esperando_ejvsplan", aspecto: text }); return;
     }
     if (paso === "esperando_ejvsplan") {
@@ -793,7 +793,7 @@ function _ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto) {
     const codigoAnal = "ANAL-" + String(Date.now()).slice(-6);
     const mpResAnal = _crearPreferenciaPago(from, nombre, "analisis", codigoAnal, COSTO_ANALISIS);
     if (mpResAnal.ok) {
-      _enviarMensajeWhatsApp(from, "Para analizar tu swing realiz\u00e1 el pago de *$ 5.000* ac\u00e1:\n" + mpResAnal.link + "\n\nUna vez que pagues, escribinos ac\u00e1 \u26f3");
+      _enviarMensajeWhatsApp(from, "Para analizar tu swing realiz\u00e1 el pago de *$ 3.500* ac\u00e1:\n" + mpResAnal.link + "\n\nUna vez que pagues, escribinos ac\u00e1 \u26f3");
       _guardarConversacion(from, { ...datosConContexto, paso: "esperando_pago_analisis", mp_external_ref: mpResAnal.externalRef || codigoAnal });
     } else {
       _enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
@@ -1830,7 +1830,7 @@ function _construirMensajeFinal(plan, ejercicios) {
   return "\u26f3 *"+e.nombre+"*\n_"+e.instruccion+"_\n\n"+plan+"\n\n\ud83c\udfa5 "+e.video_url+"\n\n\ud83d\udca1 *Tip:* Enfocate en calidad antes que cantidad.\n\ud83c\udf10 _Activa los subtitulos en tu idioma en el video de YouTube._\n\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nCualquier otra consulta escribinos \u26f3";
 }
 function _construirMensajePendienteManual(nombre, perfil) { return "Hola "+(nombre||"")+" \u26f3 Recib\u00ed tu pedido. Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1."; }
-function _construirMensajeUpsell(nombre) { return "Hola "+(nombre||"")+" \u26f3\n\nYa usaste tu ejercicio gratuito.\n\nPara seguir mejorando:\n- \ud83c\udfa5 *An\u00e1lisis de video con IA* \u2014 $ 5.000\n- \ud83d\udccb *Plan personalizado* \u2014 $ 15.000\n\nCualquier otra consulta escribinos \u26f3"; }
+function _construirMensajeUpsell(nombre) { return "Hola "+(nombre||"")+" \u26f3\n\nYa usaste tu ejercicio gratuito.\n\nPara seguir mejorando:\n- \ud83c\udfa5 *An\u00e1lisis de video con IA* \u2014 $ 3.500\n- \ud83d\udccb *Plan personalizado* \u2014 $ 15.000\n\nCualquier otra consulta escribinos \u26f3"; }
 function _obtenerEjerciciosYaEnviados(sesiones, whatsapp) {
   const h=[];
   for (let i=1;i<sesiones.length;i++) { const wa=_safeString(sesiones[i][COL.WHATSAPP-1]); const st=_safeString(sesiones[i][COL.STATUS-1]).toLowerCase(); const eid=_safeString(sesiones[i][COL.EJERCICIO_GRATIS_ID-1]); const ejv=_safeString(sesiones[i][COL.EJVSPLAN-1]); if (wa===whatsapp && st==="enviado" && ejv==="1" && eid && eid!=="UPSELL" && eid!=="SIN_EJERCICIO") h.push(eid); }
