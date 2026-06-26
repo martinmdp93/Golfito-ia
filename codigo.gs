@@ -296,7 +296,7 @@ function _enviarMenuPrincipal(from, nombre) {
     "\uD83D\uDCB0 *Saldo disponible: " + saldoStr + " CLP*\n\n" +
     "\u00bfCon qu\u00e9 te puedo ayudar?\n\n" +
     "1\ufe0f\u20e3 *Ejercicio gratis*\n" +
-    "2\ufe0f\u20e3 *\u00cdndice Golfito: califica tu swing gratis*\n" +
+    "2\ufe0f\u20e3 *\u00cdndice Golfito: califica tu swing*\n" +
     "3\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 3.500\n" +
     "4\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000\n" +
     "5\ufe0f\u20e3 *Sugerir equipamiento* \uD83D\uDEA7\n" +
@@ -474,7 +474,7 @@ function _procesarMensajeEntrante(from, text) {
           _guardarConversacion(from, { ...conv, paso: "esperando_aspecto_menu", ejvsplan: "1", nombre, handicap });
         }
       } else if (v === "2") {
-        _enviarMensajeWhatsApp(from, "\uD83D\uDCCA *\u00cdndice Golfito: califica tu swing gratis*\n\nEnviam\u00e9 un video de tu swing _(menos de 7 segundos)_ y evaluo tus 7 dimensiones t\u00e9cnicas con un score del 1 al 100 \uD83C\uDFCC\uFE0F");
+        _enviarMensajeWhatsApp(from, "\uD83D\uDCCA *\u00cdndice Golfito: califica tu swing*\n\nEnviam\u00e9 un video de tu swing _(menos de 7 segundos)_ y evaluo tus 7 dimensiones t\u00e9cnicas con un score del 1 al 100 \uD83C\uDFCC\uFE0F");
         _guardarConversacion(from, { ...conv, paso: "esperando_video_indice", ejvsplan: "indice", nombre, video_url1: "", intentos_video: 0 });
       } else if (v === "3") {
         if (MODO_TEST_ANALISIS || _obtenerSaldoLead(from) >= COSTO_ANALISIS) {
@@ -907,6 +907,11 @@ function _procesarVideoEntrante(from, mediaId) {
       const mediaData = JSON.parse(metaRes.getContentText());
       const videoRes = UrlFetchApp.fetch(mediaData.url, { headers: { "Authorization": "Bearer " + META_TOKEN } });
       const videoBlob = videoRes.getBlob().setName("swing_" + from + "_" + Date.now() + ".mp4");
+      const duracionSeg = _obtenerDuracionMp4(videoBlob);
+      if (duracionSeg !== null && duracionSeg > 10) {
+        _enviarMensajeWhatsApp(from, "El video es demasiado largo ⏱ Por favor enviá uno de menos de 7 segundos.");
+        return;
+      }
       let folder; const folders = DriveApp.getFoldersByName("Golfito_Videos");
       folder = folders.hasNext() ? folders.next() : DriveApp.createFolder("Golfito_Videos");
       const file = folder.createFile(videoBlob);
@@ -1499,6 +1504,20 @@ function generarYEnviarPlanDesdeWeb(rowIndex, planData, token) {
     const whatsapp = _safeString(sesionRow[COL.WHATSAPP-1]);
     let nombre="", handicap=""; const leadsData = leadsSheet.getDataRange().getValues();
     for (let i=1;i<leadsData.length;i++) { if (_safeString(leadsData[i][0])===whatsapp) { nombre=_safeString(leadsData[i][1]); handicap=_safeString(leadsData[i][3]); break; } }
+    const videoUrlParaIndice = _safeString(sesionRow[COL.VIDEO_URL1-1]);
+    if (videoUrlParaIndice) {
+      const mVid = videoUrlParaIndice.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (mVid) {
+        try {
+          const rIdx = _analizarIndiceConGemini(mVid[1]);
+          if (rIdx.ok) {
+            const sc = rIdx.scores;
+            const stotal = Math.round((sc.grip+sc.postura+sc.backswing+sc.downswing+sc.impacto+sc.follow_through+sc.transferencia_peso)/7*25);
+            _guardarIndiceGolfito(whatsapp, stotal, sc, videoUrlParaIndice);
+          }
+        } catch(eIdx) { Logger.log("Error calculando índice para plan: " + eIdx); }
+      }
+    }
     const htmlPlan = _generarHTMLPlan(planData, nombre, handicap, sesionRow);
     const blob = Utilities.newBlob(htmlPlan,'text/html','plan.html'); const driveFile = DriveApp.createFile(blob);
     const pdfBlob = driveFile.getAs('application/pdf').setName("Plan_Golfito_"+nombre+"_"+Date.now()+".pdf"); driveFile.setTrashed(true);
@@ -1995,6 +2014,28 @@ function _obtenerUltimoAnalisis(from) {
     }
     return null;
   } catch(err) { return null; }
+}
+
+function _obtenerDuracionMp4(blob) {
+  try {
+    const bytes = blob.getBytes();
+    const limite = Math.min(bytes.length, 65536); // buscar solo en los primeros 64KB (moov va al inicio en videos móviles)
+    for (let i = 0; i < limite - 40; i++) {
+      if ((bytes[i]&0xFF)===0x6D&&(bytes[i+1]&0xFF)===0x76&&(bytes[i+2]&0xFF)===0x68&&(bytes[i+3]&0xFF)===0x64) {
+        const version = bytes[i+4]&0xFF;
+        let ts, dur;
+        if (version===0) {
+          ts  = ((bytes[i+12]&0xFF)<<24)|((bytes[i+13]&0xFF)<<16)|((bytes[i+14]&0xFF)<<8)|(bytes[i+15]&0xFF);
+          dur = ((bytes[i+16]&0xFF)<<24)|((bytes[i+17]&0xFF)<<16)|((bytes[i+18]&0xFF)<<8)|(bytes[i+19]&0xFF);
+        } else {
+          ts  = ((bytes[i+28]&0xFF)<<24)|((bytes[i+29]&0xFF)<<16)|((bytes[i+30]&0xFF)<<8)|(bytes[i+31]&0xFF);
+          dur = ((bytes[i+36]&0xFF)<<24)|((bytes[i+37]&0xFF)<<16)|((bytes[i+38]&0xFF)<<8)|(bytes[i+39]&0xFF);
+        }
+        if (ts>0) return dur/ts;
+      }
+    }
+    return null; // no se pudo leer: fail-open (deja pasar el video)
+  } catch(e) { Logger.log("Error _obtenerDuracionMp4: "+e); return null; }
 }
 
 // ============================================
