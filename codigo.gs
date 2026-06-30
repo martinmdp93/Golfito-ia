@@ -293,7 +293,7 @@ function _enviarMenuPrincipal(from, nombre) {
   const saldoStr = _formatearSaldo(saldo);
   _enviarMensajeWhatsApp(from,
     "\u00a1Hola de nuevo *" + nombre + "*! \u26f3\n" +
-    "\uD83D\uDCB0 *Saldo disponible: " + saldoStr + " CLP*\n\n" +
+    "\uD83D\uDCB0 *Saldo disponible: " + saldoStr + "*\n\n" +
     "\u00bfCon qu\u00e9 te puedo ayudar?\n\n" +
     "1\ufe0f\u20e3 *Ejercicio gratis*\n" +
     "2\ufe0f\u20e3 *\u00cdndice Golfito: califica tu swing*\n" +
@@ -336,7 +336,7 @@ function _procesarMensajeEntrante(from, text) {
       if (paso === "esperando_pago_recarga") {
         _enviarMensajeWhatsApp(from, "\u23f3 Verificando tu recarga...");
         const externalRef = conv.mp_external_ref || "";
-        const verificacion = _verificarPagoAprobado(externalRef);
+        const verificacion = _verificarPagoAprobado(externalRef, conv.pais);
         if (verificacion.ok) {
           const montoRecarga = verificacion.monto || conv.monto_recarga || 0;
           _acreditarSaldoLead(from, montoRecarga);
@@ -355,7 +355,7 @@ function _procesarMensajeEntrante(from, text) {
             }
           } catch(se) { Logger.log("Error guardando recarga: " + se); }
           const nuevoSaldo = _obtenerSaldoLead(from);
-          _enviarMensajeWhatsApp(from, "\u2705 Recarga confirmada " + nombre + ".\n\uD83D\uDCB0 *Saldo actual: " + _formatearSaldo(nuevoSaldo) + " CLP*");
+          _enviarMensajeWhatsApp(from, "\u2705 Recarga confirmada " + nombre + ".\n\uD83D\uDCB0 *Saldo actual: " + _formatearSaldo(nuevoSaldo) + "*");
 
           // Retomar lo que el alumno estaba haciendo en vez de mandarlo siempre
           // al men\u00FA principal \u2014 evita pedirle el video de nuevo si ya lo hab\u00EDa
@@ -403,7 +403,7 @@ function _procesarMensajeEntrante(from, text) {
       if (paso === "esperando_pago_analisis") {
         _enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
         const externalRef = conv.mp_external_ref || conv.mp_codigo_plan || "";
-        const verificacion = _verificarPagoAprobado(externalRef);
+        const verificacion = _verificarPagoAprobado(externalRef, conv.pais);
         if (verificacion.ok) {
           try {
             const sh2 = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
@@ -428,7 +428,7 @@ function _procesarMensajeEntrante(from, text) {
       if (paso === "esperando_pago_plan") {
         const nombrePlan = conv.nombre || _obtenerNombreLead(from);
         _enviarMensajeWhatsApp(from, "\u23f3 Verificando tu pago...");
-        const vPlan = _verificarPagoAprobado(conv.mp_codigo_plan || "");
+        const vPlan = _verificarPagoAprobado(conv.mp_codigo_plan || "", conv.pais);
         if (vPlan.ok) {
           try {
             const sh3 = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SESIONES_SHEET);
@@ -508,7 +508,7 @@ function _procesarMensajeEntrante(from, text) {
         _enviarMensajeWhatsApp(from, "\u00a1Claro! Escrib\u00ed tu consulta o comentario y te respondemos a la brevedad \ud83d\udcdd");
         _guardarConversacion(from, { ...conv, paso: "esperando_consulta" });
       } else if (v === "8") {
-        _enviarMensajeWhatsApp(from, "\uD83D\uDCB0 *Cargar saldo*\n\n\u00bfCu\u00e1nto quer\u00e9s cargar a tu billetera Golfito? Escrib\u00ed el monto en pesos chilenos (solo el n\u00famero, sin puntos ni s\u00edmbolos).\n\nEj: *10000*");
+        _enviarMensajeWhatsApp(from, "\uD83D\uDCB0 *Cargar saldo*\n\n\u00bfCu\u00e1nto quer\u00e9s cargar a tu billetera Golfito? Escrib\u00ed el monto en pesos (solo el n\u00famero, sin puntos ni s\u00edmbolos).\n\nEj: *10000*");
         _guardarConversacion(from, { ...conv, paso: "esperando_monto_recarga" });
       } else {
         _enviarMenuPrincipal(from, nombre);
@@ -518,16 +518,21 @@ function _procesarMensajeEntrante(from, text) {
 
     if (paso === "esperando_monto_recarga") {
       const nombre = conv.nombre || _obtenerNombreLead(from);
+      if (["menu", "men\u00fa", "cancelar", "salir", "volver"].includes(textLower)) {
+        _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
+        _enviarMenuPrincipal(from, nombre);
+        return;
+      }
       const montoStr = text.replace(/\./g,"").replace(/,/g,"").trim();
       const monto = parseInt(montoStr, 10);
       if (isNaN(monto) || monto < 1000) {
-        _enviarMensajeWhatsApp(from, "El monto m\u00ednimo es $1.000. Ingres\u00e1 un n\u00famero v\u00e1lido:");
+        _enviarMensajeWhatsApp(from, "El monto m\u00ednimo es $1.000. Ingres\u00e1 un n\u00famero v\u00e1lido, o escrib\u00ed *menu* para volver al men\u00fa:");
         return;
       }
       const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
       const mpRes = _crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, monto);
       if (mpRes.ok) {
-        _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Para cargar *" + _formatearSaldo(monto) + " CLP* a tu billetera, realiz\u00e1 el pago ac\u00e1:\n" + mpRes.link + "\n\nUna vez que pagues, escribinos ac\u00e1 y acreditamos el saldo \uD83D\uDCB0");
+        _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Para cargar *" + _formatearSaldo(monto) + "* a tu billetera, realiz\u00e1 el pago ac\u00e1:\n" + mpRes.link + "\n\nUna vez que pagues, escribinos ac\u00e1 y acreditamos el saldo \uD83D\uDCB0");
         _guardarConversacion(from, { ...conv, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: monto });
         _registrarSesionRecarga(from, conv, monto, mpRes.externalRef);
       } else {
@@ -576,8 +581,16 @@ function _procesarMensajeEntrante(from, text) {
     }
     if (paso === "esperando_nombre") {
       const nombre = _sanitizarNombre(text);
-      _enviarMensajeWhatsApp(from, "Hola *" + nombre + "* \ud83d\udc4b\n\n\u00bfCu\u00e1l es tu handicap?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
-      _guardarConversacion(from, { ...conv, paso: "esperando_handicap", nombre }); return;
+      _enviarMensajeWhatsApp(from, "Hola *" + nombre + "* \ud83d\udc4b\n\n\u00bfEn qu\u00e9 pa\u00eds est\u00e1s?\n\n1\ufe0f\u20e3 Chile\n2\ufe0f\u20e3 Argentina");
+      _guardarConversacion(from, { ...conv, paso: "esperando_pais", nombre }); return;
+    }
+    if (paso === "esperando_pais") {
+      let pais;
+      if (text === "1") pais = "CL";
+      else if (text === "2") pais = "AR";
+      else { _enviarMensajeWhatsApp(from, "Por favor eleg\u00ed una opci\u00f3n:\n\n1\ufe0f\u20e3 Chile\n2\ufe0f\u20e3 Argentina"); return; }
+      _enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu handicap?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
+      _guardarConversacion(from, { ...conv, paso: "esperando_handicap", pais }); return;
     }
     if (paso === "esperando_handicap") {
       // Capturar el lead acá mismo (no esperar a que termine una sesión) — si no,
@@ -646,7 +659,7 @@ function _procesarMensajeEntrante(from, text) {
           const debitado = _debitarSaldoLead(from, COSTO_ANALISIS);
           if (debitado) {
             _actualizarPagoSesionWallet(from, COSTO_ANALISIS);
-            _enviarMensajeWhatsApp(from, "\u2705 Se debitaron *" + _formatearSaldo(COSTO_ANALISIS) + " CLP* de tu saldo.\n\n\u23f3 Analizando tu swing con IA, dame un momento...");
+            _enviarMensajeWhatsApp(from, "\u2705 Se debitaron *" + _formatearSaldo(COSTO_ANALISIS) + "* de tu saldo.\n\n\u23f3 Analizando tu swing con IA, dame un momento...");
             _procesarAnalisisVideo(from, datosConContexto, false);
           } else {
             _ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto);
@@ -715,7 +728,7 @@ function _procesarMensajeEntrante(from, text) {
             _registrarSesion(from, { ...datos, ejvsplan: "3", pago_wallet: true });
             const perfil = { nivel: _mapNivel(conv.handicap||"", _mapAspectoLead(conv.aspecto||"")), aspecto: _mapAspectoLead(conv.aspecto||""), tiempo: "45 minutos" };
             _notificarNuevoPlan(nombre, from, perfil, conv.video_url1||"", comentarios);
-            _enviarMensajeWhatsApp(from, "\u2705 Se debitaron *" + _formatearSaldo(COSTO_PLAN) + " CLP* de tu saldo.\n\nPerfecto " + nombre + " \u26f3 Estamos preparando tu plan y te lo enviamos pronto por ac\u00e1.");
+            _enviarMensajeWhatsApp(from, "\u2705 Se debitaron *" + _formatearSaldo(COSTO_PLAN) + "* de tu saldo.\n\nPerfecto " + nombre + " \u26f3 Estamos preparando tu plan y te lo enviamos pronto por ac\u00e1.");
           } else {
             _ofrecerRecargaPlan(from, nombre, conv, comentarios);
           }
@@ -781,9 +794,9 @@ function _ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto) {
   const mpRes = _crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, falta);
   if (mpRes.ok) {
     _enviarMensajeWhatsApp(from,
-      "\uD83D\uDCB0 Tu saldo actual es *" + _formatearSaldo(saldo) + " CLP*.\n\n" +
-      "Para analizar tu swing necesit\u00e1s *" + _formatearSaldo(COSTO_ANALISIS) + " CLP*.\n\n" +
-      "Recarg\u00e1 *" + _formatearSaldo(mpRes.monto) + " CLP* ac\u00e1 para continuar:\n" + mpRes.link + "\n\n" +
+      "\uD83D\uDCB0 Tu saldo actual es *" + _formatearSaldo(saldo) + "*.\n\n" +
+      "Para analizar tu swing necesit\u00e1s *" + _formatearSaldo(COSTO_ANALISIS) + "*.\n\n" +
+      "Recarg\u00e1 *" + _formatearSaldo(mpRes.monto) + "* ac\u00e1 para continuar:\n" + mpRes.link + "\n\n" +
       "Una vez que pagues, escribinos ac\u00e1 \u26f3"
     );
     _guardarConversacion(from, { ...datosConContexto, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: mpRes.monto, post_recarga: "analisis" });
@@ -814,9 +827,9 @@ function _ofrecerRecargaAnalisisPrevia(from, nombre, conv) {
   const mpRes = _crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, falta);
   if (mpRes.ok) {
     _enviarMensajeWhatsApp(from,
-      "💰 Tu saldo actual es *" + _formatearSaldo(saldo) + " CLP*.\n\n" +
-      "Para analizar tu swing necesitás *" + _formatearSaldo(COSTO_ANALISIS) + " CLP*.\n\n" +
-      "Recargá *" + _formatearSaldo(mpRes.monto) + " CLP* acá para continuar:\n" + mpRes.link + "\n\n" +
+      "💰 Tu saldo actual es *" + _formatearSaldo(saldo) + "*.\n\n" +
+      "Para analizar tu swing necesitás *" + _formatearSaldo(COSTO_ANALISIS) + "*.\n\n" +
+      "Recargá *" + _formatearSaldo(mpRes.monto) + "* acá para continuar:\n" + mpRes.link + "\n\n" +
       "Una vez que pagues, escribinos acá y te pido el video ⛳"
     );
     _guardarConversacion(from, { ...conv, nombre, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: mpRes.monto, post_recarga: "analisis_pre" });
@@ -835,9 +848,9 @@ function _ofrecerRecargaPlan(from, nombre, conv, comentarios) {
   const mpRes = _crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, falta);
   if (mpRes.ok) {
     _enviarMensajeWhatsApp(from,
-      "\uD83D\uDCB0 Tu saldo actual es *" + _formatearSaldo(saldo) + " CLP*.\n\n" +
-      "Para tu plan personalizado necesit\u00e1s *" + _formatearSaldo(COSTO_PLAN) + " CLP*.\n\n" +
-      "Recarg\u00e1 *" + _formatearSaldo(mpRes.monto) + " CLP* ac\u00e1 para continuar:\n" + mpRes.link + "\n\n" +
+      "\uD83D\uDCB0 Tu saldo actual es *" + _formatearSaldo(saldo) + "*.\n\n" +
+      "Para tu plan personalizado necesit\u00e1s *" + _formatearSaldo(COSTO_PLAN) + "*.\n\n" +
+      "Recarg\u00e1 *" + _formatearSaldo(mpRes.monto) + "* ac\u00e1 para continuar:\n" + mpRes.link + "\n\n" +
       "Una vez que pagues, escribinos ac\u00e1 \u26f3"
     );
     _guardarConversacion(from, { ...conv, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: mpRes.monto, comentarios_alumno: comentarios, post_recarga: "plan" });
@@ -1691,6 +1704,10 @@ function analizarSwingPanelConGemini(driveFileId, token) {
 // ============================================
 function _crearPreferenciaPago(whatsapp, nombre, tipo, codigoPlan, montoCustom) {
   try {
+    const paisConv = _obtenerConversacion(whatsapp).pais || "CL";
+    const MP_TOKEN_AR = PropertiesService.getScriptProperties().getProperty("MP_ACCESS_TOKEN_AR");
+    const mpToken = (paisConv === "AR" && MP_TOKEN_AR) ? MP_TOKEN_AR : MP_ACCESS_TOKEN;
+    const currency = paisConv === "AR" ? "ARS" : "CLP";
     let monto, titulo;
     if (tipo === "analisis") { monto = montoCustom || COSTO_ANALISIS; titulo = "Analisis de swing — " + nombre; }
     else if (tipo === "plan") { monto = montoCustom || COSTO_PLAN; titulo = "Plan personalizado — " + nombre; }
@@ -1699,8 +1716,8 @@ function _crearPreferenciaPago(whatsapp, nombre, tipo, codigoPlan, montoCustom) 
     if (monto < 1000) monto = 1000;
     const externalRef = codigoPlan+"_"+whatsapp;
     const notificationUrl = MP_WEBHOOK_URL + "?source=mp" + (WEBHOOK_SECRET ? "&secret=" + encodeURIComponent(WEBHOOK_SECRET) : "");
-    const payload = { items:[{title:titulo,quantity:1,unit_price:monto,currency_id:"CLP"}], payer:{name:nombre}, external_reference:externalRef, notification_url:notificationUrl, back_urls:{success:"https://wa.me/"+whatsapp,failure:"https://wa.me/"+whatsapp,pending:"https://wa.me/"+whatsapp}, auto_return:"approved", statement_descriptor:"Golfito" };
-    const res = UrlFetchApp.fetch("https://api.mercadopago.com/checkout/preferences", { method:"POST", headers:{"Authorization":"Bearer "+MP_ACCESS_TOKEN,"Content-Type":"application/json"}, payload:JSON.stringify(payload), muteHttpExceptions:true });
+    const payload = { items:[{title:titulo,quantity:1,unit_price:monto,currency_id:currency}], payer:{name:nombre}, external_reference:externalRef, notification_url:notificationUrl, back_urls:{success:"https://wa.me/"+whatsapp,failure:"https://wa.me/"+whatsapp,pending:"https://wa.me/"+whatsapp}, auto_return:"approved", statement_descriptor:"Golfito" };
+    const res = UrlFetchApp.fetch("https://api.mercadopago.com/checkout/preferences", { method:"POST", headers:{"Authorization":"Bearer "+mpToken,"Content-Type":"application/json"}, payload:JSON.stringify(payload), muteHttpExceptions:true });
     const data = JSON.parse(res.getContentText());
     if (!data.init_point) throw new Error("MP no devolvio init_point: "+res.getContentText());
     const link = (MODO_TEST_PLAN || MODO_TEST_ANALISIS) ? (data.sandbox_init_point||data.init_point) : data.init_point;
@@ -1723,8 +1740,13 @@ function _procesarPagoMP(paymentId) {
     if (props.getProperty(guardKey)) { Logger.log("Pago duplicado ignorado: " + paymentId); return; }
     props.setProperty(guardKey, String(Date.now()));
     try { const ss=SpreadsheetApp.getActiveSpreadsheet(); let l=ss.getSheetByName("ChatLog"); if (!l) l=ss.insertSheet("ChatLog"); l.appendRow([new Date(),"MP_WEBHOOK","entrante","payment",String(paymentId)]); } catch(le){}
-    const res = UrlFetchApp.fetch("https://api.mercadopago.com/v1/payments/"+paymentId, {headers:{"Authorization":"Bearer "+MP_ACCESS_TOKEN},muteHttpExceptions:true});
-    const pago = JSON.parse(res.getContentText());
+    const MP_TOKEN_AR = props.getProperty("MP_ACCESS_TOKEN_AR");
+    let res = UrlFetchApp.fetch("https://api.mercadopago.com/v1/payments/"+paymentId, {headers:{"Authorization":"Bearer "+MP_ACCESS_TOKEN},muteHttpExceptions:true});
+    let pago = JSON.parse(res.getContentText());
+    if (pago.error && MP_TOKEN_AR) {
+      res = UrlFetchApp.fetch("https://api.mercadopago.com/v1/payments/"+paymentId, {headers:{"Authorization":"Bearer "+MP_TOKEN_AR},muteHttpExceptions:true});
+      pago = JSON.parse(res.getContentText());
+    }
     Logger.log("Pago MP status: "+pago.status+" | ref: "+pago.external_reference);
     if (pago.status!=="approved") { Logger.log("Pago no aprobado: "+pago.status); return; }
     const externalRef = pago.external_reference||""; if (!externalRef) { Logger.log("Sin external_reference"); return; }
@@ -1736,7 +1758,7 @@ function _procesarPagoMP(paymentId) {
       _acreditarSaldoLead(whatsapp, montoAprobado);
       const nombre = _obtenerNombreLead(whatsapp);
       const nuevoSaldo = _obtenerSaldoLead(whatsapp);
-      _enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Recarga confirmada " + nombre + "!\n\uD83D\uDCB0 *Saldo actual: " + _formatearSaldo(nuevoSaldo) + " CLP*\n\nYa pod\u00e9s usar tu saldo para analizar swings o solicitar un plan \u26f3");
+      _enviarMensajeWhatsApp(whatsapp, "\u2705 \u00a1Recarga confirmada " + nombre + "!\n\uD83D\uDCB0 *Saldo actual: " + _formatearSaldo(nuevoSaldo) + "*\n\nYa pod\u00e9s usar tu saldo para analizar swings o solicitar un plan \u26f3");
       const conv = _obtenerConversacion(whatsapp);
       _guardarConversacion(whatsapp, { ...conv, paso: "esperando_menu_principal" });
       _enviarMenuPrincipal(whatsapp, nombre);
@@ -1784,9 +1806,11 @@ function procesarReintegroDesdePanel(rowIndex, token) {
   } catch(err) { return {ok:false,error:err.toString()}; }
 }
 
-function _verificarPagoAprobado(externalRef) {
+function _verificarPagoAprobado(externalRef, pais) {
   try {
-    const res = UrlFetchApp.fetch("https://api.mercadopago.com/v1/payments/search?external_reference="+encodeURIComponent(externalRef)+"&sort=date_created&criteria=desc&limit=1", {headers:{"Authorization":"Bearer "+MP_ACCESS_TOKEN},muteHttpExceptions:true});
+    const MP_TOKEN_AR = PropertiesService.getScriptProperties().getProperty("MP_ACCESS_TOKEN_AR");
+    const token = (pais === "AR" && MP_TOKEN_AR) ? MP_TOKEN_AR : MP_ACCESS_TOKEN;
+    const res = UrlFetchApp.fetch("https://api.mercadopago.com/v1/payments/search?external_reference="+encodeURIComponent(externalRef)+"&sort=date_created&criteria=desc&limit=1", {headers:{"Authorization":"Bearer "+token},muteHttpExceptions:true});
     const data = JSON.parse(res.getContentText()); const resultados = data.results||[];
     if (resultados.length===0) return {ok:false,motivo:"no_encontrado"};
     const pago = resultados[0];
