@@ -2150,6 +2150,21 @@ function _testGeminiV7() { const resultado=_analizarSwingConGemini("10EFfw5W9gIn
 // Se puede borrar una vez confirmado que el template llega bien.
 function _testRecordatorioAMiNumero() { _enviarTemplateWhatsApp("56949425602", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
 function _testRecordatorioOtroNumero() { _enviarTemplateWhatsApp("56975466327", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
+
+// Editá esta lista con los números/nombres que quieras y correla desde el editor
+// (seleccionar _enviarRecordatorioALista en el desplegable de funciones > Ejecutar)
+// para mandar el recordatorio semanal a un grupo puntual, sin esperar al trigger
+// automático ni depender de si interactuaron hace poco o no.
+function _enviarRecordatorioALista() {
+  const destinatarios = [
+    { telefono: "56912345678", nombre: "Juan" },
+    { telefono: "56987654321", nombre: "Pedro" }
+  ];
+  destinatarios.forEach(function(d) {
+    try { _enviarTemplateWhatsApp(d.telefono, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: d.nombre }]); }
+    catch(err) { Logger.log("Error enviando recordatorio a " + d.telefono + ": " + err); }
+  });
+}
 // Esta función tiene un trigger de tiempo, así que su nombre debe quedar público
 // (Apps Script no permite que un trigger apunte a una función con "_"). Por eso
 // NO se borran acá las claves "mp_processed_*": si cualquiera pudiera llamar a esta
