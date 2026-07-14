@@ -121,7 +121,21 @@ function doPost(e) {
       return _okResponse();
     }
     if (!_secretWebhookValido(e)) { Logger.log("doPost WhatsApp rechazado: secret invalido"); return _okResponse(); }
-    if (!body.entry?.[0]?.changes?.[0]?.value?.messages) return _okResponse();
+    if (!body.entry?.[0]?.changes?.[0]?.value?.messages) {
+      // Meta también manda acá los callbacks de estado de mensajes salientes
+      // (sent/delivered/read/failed). Antes se descartaban en silencio; ahora
+      // se loguean en ChatLog para poder diagnosticar entregas que fallan.
+      const statuses = body.entry?.[0]?.changes?.[0]?.value?.statuses;
+      if (statuses && statuses.length) {
+        try {
+          const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog");
+          statuses.forEach(function(s) {
+            sheet.appendRow([new Date(), s.recipient_id || "", "status", s.status || "", s.errors ? JSON.stringify(s.errors) : ""]);
+          });
+        } catch(e2) { Logger.log("Error logueando status WhatsApp: " + e2); }
+      }
+      return _okResponse();
+    }
     const message = body.entry[0].changes[0].value.messages[0];
     const from = message.from;
 
@@ -1101,19 +1115,23 @@ function enviarRecordatorioSemanal() {
     if (!whatsapp || !nombre) continue;
     const ultima = ultimaActividad[whatsapp];
     if (ultima && (ahora - ultima) < limiteMs) continue;
-    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [nombre]); }
+    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: nombre }]); }
     catch(err) { Logger.log("Error enviando recordatorio semanal a " + whatsapp + ": " + err); }
   }
 }
 
+// parametrosBody: lista de { name, value } — el template usa variables con nombre
+// (ej. {{nombre}}), así que cada parámetro necesita "parameter_name" además del texto.
 function _enviarTemplateWhatsApp(telefono, templateName, languageCode, parametrosBody) {
-  UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/messages", {
+  const res = UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/messages", {
     method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN, "Content-Type": "application/json" },
+    muteHttpExceptions: true,
     payload: JSON.stringify({
       messaging_product: "whatsapp", to: telefono, type: "template",
-      template: { name: templateName, language: { code: languageCode }, components: [{ type: "body", parameters: parametrosBody.map(function(p){ return { type: "text", text: p }; }) }] }
+      template: { name: templateName, language: { code: languageCode }, components: [{ type: "body", parameters: parametrosBody.map(function(p){ return { type: "text", parameter_name: p.name, text: p.value }; }) }] }
     })
   });
+  if (res.getResponseCode() >= 300) { Logger.log("Error _enviarTemplateWhatsApp (" + res.getResponseCode() + "): " + res.getContentText()); throw new Error(res.getContentText()); }
   _logMensaje(telefono, "saliente", "template", templateName);
 }
 
@@ -2127,6 +2145,11 @@ function _testEnvioMeta() { _enviarMensajeWhatsApp("56975466327","Test desde App
 function _listarModelosGemini() { const res=UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models?key="+GEMINI_API_KEY,{muteHttpExceptions:true}); const data=JSON.parse(res.getContentText()); Logger.log(data.models?.map(m=>m.name).join("\n")||"Sin modelos"); }
 function _testLogDirecto() { const sheet=SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog"); Logger.log("Sheet: "+(sheet?"SI":"NO")); sheet.appendRow([new Date(),"test123","saliente","texto","prueba directa"]); Logger.log("OK"); }
 function _testGeminiV7() { const resultado=_analizarSwingConGemini("10EFfw5W9gInxH4tDdPugTNVp2-Fnyztv",""); Logger.log(JSON.stringify(resultado)); }
+// Temporal: probar el template del recordatorio semanal contra un solo número
+// antes de correr enviarRecordatorioSemanal (que le manda a todos los inactivos).
+// Se puede borrar una vez confirmado que el template llega bien.
+function _testRecordatorioAMiNumero() { _enviarTemplateWhatsApp("56949425602", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
+function _testRecordatorioOtroNumero() { _enviarTemplateWhatsApp("56975466327", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
 // Esta función tiene un trigger de tiempo, así que su nombre debe quedar público
 // (Apps Script no permite que un trigger apunte a una función con "_"). Por eso
 // NO se borran acá las claves "mp_processed_*": si cualquiera pudiera llamar a esta
