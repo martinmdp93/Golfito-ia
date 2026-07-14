@@ -28,6 +28,10 @@ const COSTO_ANALISIS = 3500;
 const COSTO_PLAN = 15000;
 const SALDO_INICIAL_LEAD = 3500;
 
+const RECORDATORIO_TEMPLATE_NAME = "recordatorio_practica_semanal";
+const RECORDATORIO_TEMPLATE_LANG = "es_AR";
+const RECORDATORIO_DIAS_INACTIVIDAD = 7;
+
 const ENTRADA_CALOR_STD = "Empeza con 5 minutos de movilidad articular (hombros, caderas y munecas). Tira 10-15 chips cortos para activar el tacto. Luego hace 5-8 swings completos a medio ritmo antes de arrancar con los ejercicios.";
 const CONSIDERACIONES_STD = "Animo! Intenta este plan en 2 a 4 sesiones de entrenamiento y comentanos tus avances o cualquier duda adicional. Recorda siempre tirar algunas bolas de forma natural y sin pensamientos tecnicos antes de dejar el driving, y evita pensamientos complejos al competir.";
 
@@ -1076,6 +1080,50 @@ function enviarFeedbackPendiente() {
     _guardarConversacion(whatsapp, { ...conv, paso: "esperando_feedback" });
     _enviarMensajeWhatsApp(whatsapp, "\u00a1Hola " + nombre + "! \ud83c\udfcc\ufe0f Del 1 al 5, \u00bfqu\u00e9 tan \u00fatil fue tu plan?\n\n1 = poco \u00fatil \u00b7 5 = muy \u00fatil");
   }
+}
+
+// ============================================
+// RECORDATORIO SEMANAL (trigger: viernes 14:00, ver _crearTriggerRecordatorioSemanal)
+// ============================================
+function enviarRecordatorioSemanal() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const leadsSheet = ss.getSheetByName(LEADS_SHEET); const convSheet = ss.getSheetByName(CONVERSATIONS_SHEET);
+  if (!leadsSheet) return;
+  const ultimaActividad = {};
+  if (convSheet) {
+    const convData = convSheet.getDataRange().getValues();
+    for (let i = 1; i < convData.length; i++) { const wa = _safeString(convData[i][0]); if (wa) ultimaActividad[wa] = new Date(convData[i][2]); }
+  }
+  const ahora = new Date(); const limiteMs = RECORDATORIO_DIAS_INACTIVIDAD * 24 * 60 * 60 * 1000;
+  const leads = leadsSheet.getDataRange().getValues();
+  for (let i = 1; i < leads.length; i++) {
+    const whatsapp = _safeString(leads[i][0]); const nombre = _safeString(leads[i][1]);
+    if (!whatsapp || !nombre) continue;
+    const ultima = ultimaActividad[whatsapp];
+    if (ultima && (ahora - ultima) < limiteMs) continue;
+    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [nombre]); }
+    catch(err) { Logger.log("Error enviando recordatorio semanal a " + whatsapp + ": " + err); }
+  }
+}
+
+function _enviarTemplateWhatsApp(telefono, templateName, languageCode, parametrosBody) {
+  UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/messages", {
+    method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN, "Content-Type": "application/json" },
+    payload: JSON.stringify({
+      messaging_product: "whatsapp", to: telefono, type: "template",
+      template: { name: templateName, language: { code: languageCode }, components: [{ type: "body", parameters: parametrosBody.map(function(p){ return { type: "text", text: p }; }) }] }
+    })
+  });
+  _logMensaje(telefono, "saliente", "template", templateName);
+}
+
+// Correr UNA vez a mano desde el editor de Apps Script (seleccionar esta función
+// y Ejecutar) para crear el trigger de tiempo. Es idempotente: si ya existe un
+// trigger para enviarRecordatorioSemanal lo borra antes de crear el nuevo, así
+// que se puede volver a correr sin generar duplicados.
+function _crearTriggerRecordatorioSemanal() {
+  ScriptApp.getProjectTriggers().forEach(function(t) { if (t.getHandlerFunction() === "enviarRecordatorioSemanal") ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger("enviarRecordatorioSemanal").timeBased().onWeekDay(ScriptApp.WeekDay.FRIDAY).atHour(14).create();
 }
 
 function _guardarConsulta(from, nombre, texto) {
