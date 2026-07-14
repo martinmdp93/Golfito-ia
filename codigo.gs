@@ -26,6 +26,7 @@ const MODO_TEST_PLAN = PropertiesService.getScriptProperties().getProperty("MODO
 
 const COSTO_ANALISIS = 3500;
 const COSTO_PLAN = 15000;
+const SALDO_INICIAL_LEAD = 3500;
 
 const ENTRADA_CALOR_STD = "Empeza con 5 minutos de movilidad articular (hombros, caderas y munecas). Tira 10-15 chips cortos para activar el tacto. Luego hace 5-8 swings completos a medio ritmo antes de arrancar con los ejercicios.";
 const CONSIDERACIONES_STD = "Animo! Intenta este plan en 2 a 4 sesiones de entrenamiento y comentanos tus avances o cualquier duda adicional. Recorda siempre tirar algunas bolas de forma natural y sin pensamientos tecnicos antes de dejar el driving, y evita pensamientos complejos al competir.";
@@ -299,10 +300,9 @@ function _enviarMenuPrincipal(from, nombre) {
     "2\ufe0f\u20e3 *\u00cdndice Golfito: califica tu swing*\n" +
     "3\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 3.500\n" +
     "4\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000\n" +
-    "5\ufe0f\u20e3 *Sugerir equipamiento* \uD83D\uDEA7\n" +
-    "6\ufe0f\u20e3 *Actualizar mis datos*\n" +
-    "7\ufe0f\u20e3 *Otras consultas*\n" +
-    "8\ufe0f\u20e3 *Cargar saldo*"
+    "5\ufe0f\u20e3 *Actualizar mis datos*\n" +
+    "6\ufe0f\u20e3 *Otras consultas*\n" +
+    "7\ufe0f\u20e3 *Cargar saldo*"
   );
 }
 
@@ -320,8 +320,16 @@ function _procesarMensajeEntrante(from, text) {
     if (textLower === "hola" || textLower === "inicio" || paso === "inicio") {
       if (_esUsuarioConocido(from)) {
         const nombre = _obtenerNombreLead(from);
-        _enviarMenuPrincipal(from, nombre);
-        _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
+        if (!conv.pais) {
+          // Leads que se registraron antes de que existiera la pregunta de país
+          // nunca tienen conv.pais guardado, y _crearPreferenciaPago cae a "CL"
+          // por default — se los termina cobrando en CLP aunque sean de otro país.
+          _enviarMensajeWhatsApp(from, "Antes de seguir, contame ¿en qué país estás?\n\n1️⃣ Chile\n2️⃣ Argentina");
+          _guardarConversacion(from, { ...conv, paso: "esperando_pais_retorno", nombre });
+        } else {
+          _enviarMenuPrincipal(from, nombre);
+          _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
+        }
       } else {
         _enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\n\u00bfCu\u00e1l es tu nombre?");
         _guardarConversacion(from, { paso: "esperando_nombre", nombre: "", handicap: "", aspecto: "", ejvsplan: "", video_url1: "", video_url2: "" });
@@ -494,20 +502,12 @@ function _procesarMensajeEntrante(from, text) {
           _guardarConversacion(from, { ...conv, paso: "esperando_video_plan_1", ejvsplan: "3", nombre, video_url1: "", video_url2: "", intentos_video: 0 });
         }
       } else if (v === "5") {
-        _enviarMensajeWhatsApp(from,
-          "\uD83C\uDFCC\uFE0F *Equipamiento para entrenar* \uD83D\uDEA7\n\n" +
-          "Esta sección está en construcción. Próximamente te vamos a compartir recomendaciones de equipamiento para mejorar tu entrenamiento.\n\n" +
-          "Cualquier consulta escribinos \u26f3"
-        );
-        _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
-        _enviarMenuPrincipal(from, nombre);
-      } else if (v === "6") {
         _enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s actualizar?\n\n1\ufe0f\u20e3 Mi nombre\n2\ufe0f\u20e3 Mi handicap");
         _guardarConversacion(from, { ...conv, paso: "esperando_actualizar_datos" });
-      } else if (v === "7") {
+      } else if (v === "6") {
         _enviarMensajeWhatsApp(from, "\u00a1Claro! Escrib\u00ed tu consulta o comentario y te respondemos a la brevedad \ud83d\udcdd");
         _guardarConversacion(from, { ...conv, paso: "esperando_consulta" });
-      } else if (v === "8") {
+      } else if (v === "7") {
         _enviarMensajeWhatsApp(from, "\uD83D\uDCB0 *Cargar saldo*\n\n\u00bfCu\u00e1nto quer\u00e9s cargar a tu billetera Golfito? Escrib\u00ed el monto en pesos (solo el n\u00famero, sin puntos ni s\u00edmbolos).\n\nEj: *10000*");
         _guardarConversacion(from, { ...conv, paso: "esperando_monto_recarga" });
       } else {
@@ -591,6 +591,15 @@ function _procesarMensajeEntrante(from, text) {
       else { _enviarMensajeWhatsApp(from, "Por favor eleg\u00ed una opci\u00f3n:\n\n1\ufe0f\u20e3 Chile\n2\ufe0f\u20e3 Argentina"); return; }
       _enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu handicap?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
       _guardarConversacion(from, { ...conv, paso: "esperando_handicap", pais }); return;
+    }
+    if (paso === "esperando_pais_retorno") {
+      let pais;
+      if (text === "1") pais = "CL";
+      else if (text === "2") pais = "AR";
+      else { _enviarMensajeWhatsApp(from, "Por favor eleg\u00ed una opci\u00f3n:\n\n1\ufe0f\u20e3 Chile\n2\ufe0f\u20e3 Argentina"); return; }
+      const nombre = conv.nombre || _obtenerNombreLead(from);
+      _enviarMenuPrincipal(from, nombre);
+      _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", pais }); return;
     }
     if (paso === "esperando_handicap") {
       // Capturar el lead acá mismo (no esperar a que termine una sesión) — si no,
@@ -1097,7 +1106,7 @@ function _registrarOActualizarLead(from, nombre, handicap) {
   if (!sheet) { sheet = ss.insertSheet(LEADS_SHEET); sheet.appendRow(["whatsapp","nombre","fecha_registro","handicap","notas","saldo"]); }
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) { if (_safeString(data[i][0]) === from) { sheet.getRange(i+1,4).setValue(handicap); return; } }
-  sheet.appendRow([from, nombre, new Date(), handicap, "", 0]);
+  sheet.appendRow([from, nombre, new Date(), handicap, "", SALDO_INICIAL_LEAD]);
 }
 
 function _registrarSesion(from, conv, analisis1, analisis2) {
