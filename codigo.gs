@@ -28,7 +28,7 @@ const COSTO_ANALISIS = 3500;
 const COSTO_PLAN = 15000;
 const SALDO_INICIAL_LEAD = 3500;
 
-const RECORDATORIO_TEMPLATE_NAME = "recordatorio_practica_semanal";
+const RECORDATORIO_TEMPLATE_NAME = "recordatorio_practica_semanal_2";
 const RECORDATORIO_TEMPLATE_LANG = "es_AR";
 const RECORDATORIO_DIAS_INACTIVIDAD = 7;
 
