@@ -1031,7 +1031,7 @@ function _procesarAnalisisVideo(from, conv, esSegundoVideo) {
     if (!resultado.ok) throw new Error(resultado.error);
     const a = resultado.analisis;
     const titulo = esSegundoVideo ? "\ud83e\udd16 *An\u00e1lisis complementario (" + a.angulo + ")*" : "\ud83e\udd16 *An\u00e1lisis de tu swing (" + a.angulo + ")*";
-    _enviarMensajeWhatsApp(from, titulo + "\n\n\ud83c\udfaf *Error principal:* " + a.error_principal + "\n\ud83d\udcca *Severidad:* " + a.severidad + "\n\n\ud83d\udcdd *Detalles:*\n" + a.detalles + "\n\n\ud83d\udca1 *Recomendaci\u00f3n:*\n" + a.recomendacion);
+    _enviarMensajeWhatsApp(from, titulo + "\n\n\ud83c\udfaf *Error principal:* " + a.error_principal + "\n\ud83d\udcca *Severidad:* " + a.severidad + "\n\n\ud83d\udcdd *Detalles:*\n" + a.detalles + "\n\n\ud83d\udca1 *Recomendaci\u00f3n:*\n" + a.recomendacion + "\n\nCuando vuelvas a la pr\u00e1ctica, mandame un video nuevo as\u00ed llevamos tu evoluci\u00f3n \ud83d\udcaa");
     const nombre = conv.nombre || _obtenerNombreLead(from);
     if (!esSegundoVideo) {
       _enviarMenuPrincipal(from, nombre);
@@ -2000,6 +2000,7 @@ function _procesarIndiceGolfito(from, driveUrl, conv) {
       const signo = diff > 0 ? "+" : "";
       msg += "\n\n\uD83D\uDCC8 *Evoluci\u00f3n:* " + anterior + " \u2192 " + scoreTotal + " (" + signo + diff + ")";
     }
+    msg += "\n\nEste n\u00FAmero se actualiza con cada video. Mandame otro despu\u00E9s de tu pr\u00E1ctica y vemos c\u00f3mo se mueve tu \u00EDndice. Y si quer\u00E9s un an\u00E1lisis m\u00E1s a fondo, eleg\u00ED la opci\u00f3n 'an\u00E1lisis' o 'plan de entrenamiento' \uD83C\uDFCC\uFE0F";
     _enviarMensajeWhatsApp(from, msg);
     const nombre = conv.nombre || _obtenerNombreLead(from);
     _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal" });
