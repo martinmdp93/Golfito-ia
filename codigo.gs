@@ -1032,6 +1032,9 @@ function _procesarAnalisisVideo(from, conv, esSegundoVideo) {
     const a = resultado.analisis;
     const titulo = esSegundoVideo ? "\ud83e\udd16 *An\u00e1lisis complementario (" + a.angulo + ")*" : "\ud83e\udd16 *An\u00e1lisis de tu swing (" + a.angulo + ")*";
     _enviarMensajeWhatsApp(from, titulo + "\n\n\ud83c\udfaf *Error principal:* " + a.error_principal + "\n\ud83d\udcca *Severidad:* " + a.severidad + "\n\n\ud83d\udcdd *Detalles:*\n" + a.detalles + "\n\n\ud83d\udca1 *Recomendaci\u00f3n:*\n" + a.recomendacion + "\n\nCuando vuelvas a la pr\u00e1ctica, mandame un video nuevo as\u00ed llevamos tu evoluci\u00f3n \ud83d\udcaa");
+    if (a.angulo === "perfil" || a.angulo === "frontal") {
+      _enviarImagenComparativaSwing(from, match[1], resultado.fileUri, "Error principal: " + a.error_principal + ". Detalles: " + a.detalles);
+    }
     const nombre = conv.nombre || _obtenerNombreLead(from);
     if (!esSegundoVideo) {
       _enviarMenuPrincipal(from, nombre);
@@ -1760,7 +1763,7 @@ function _analizarSwingConGemini(driveFileId, contextoAdicional, from) {
       if (statusCode<200||statusCode>=300) throw new Error("Error Gemini "+statusCode+": "+body);
       const data = JSON.parse(body); const text = data.candidates?.[0]?.content?.parts?.[0]?.text||"";
       const analisis = JSON.parse(text.replace(/```json|```/g,"").trim());
-      return {ok:true,analisis};
+      return {ok:true,analisis,fileUri};
     }
     throw new Error("Gemini no disponible tras "+MAX_INTENTOS+" intentos. "+lastError);
   } catch(err) { Logger.log("Error _analizarSwingConGemini: "+err); return {ok:false,error:err.toString()}; }
@@ -1772,6 +1775,81 @@ function _analizarSwingConGemini(driveFileId, contextoAdicional, from) {
 function analizarSwingPanelConGemini(driveFileId, token) {
   if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
   return _analizarSwingConGemini(driveFileId, "", "");
+}
+
+// ============================================
+// IMAGEN COMPARATIVA DEL SWING (antes/despues)
+// ============================================
+// Complementa el análisis de texto con una imagen: un fotograma del error
+// marcado (cruz/círculo) al lado del mismo fotograma con una flecha verde de
+// corrección. No bloquea el resto de la conversación si falla: es un extra
+// sobre el análisis de texto, no un paso crítico del flujo.
+function _generarCoordenadasErrorSwing(fileUri, analisisTexto) {
+  try {
+    const prompt = "Sos un coach profesional de golf analizando un video de swing amateur. Ya le hiciste este análisis de texto al alumno sobre ESTE MISMO video — es la única fuente de verdad sobre cuál es el error, en qué momento del swing ocurre y qué parte del cuerpo lo causa:\n\"" + (analisisTexto||"") + "\"\n\nTu tarea ahora es encontrar el fotograma EXACTO del video que muestra ESE error puntual, para poder marcarlo visualmente. Es crítico que el fotograma corresponda al MISMO MOMENTO del swing que describe el análisis: si el análisis habla del backswing (subida del palo), buscá el fotograma en esa fase — NO uses el finish, el follow through ni el impacto salvo que el análisis se refiera explícitamente a esa fase. Es igual de crítico que marques la MISMA parte del cuerpo que nombra el análisis como causante del error (por ejemplo, si dice \"soltar las manos\", el bounding box va en las manos/muñecas, NO en la cadera ni en otra parte que se vea llamativa en ese fotograma).\n\nPASO 1 — Basándote pura y exclusivamente en el texto de arriba, identificá en qué fase ocurre el error: stance, takeaway, backswing, transición, downswing, impacto, follow through o finish.\n\nPASO 2 — Identificá la parte específica del cuerpo que el análisis señala como causante del error (ej: \"manos y muñecas\", \"rodilla izquierda\", \"cadera\", \"hombros\", \"cabeza\"). Si el texto no la nombra literalmente, inferí la parte anatómica que ejecuta la acción descripta (ej. \"soltar las manos antes de tiempo\" → manos/muñecas; \"balanceo lateral\" → cadera/torso). No elijas una parte del cuerpo distinta solo porque se vea más visible en el fotograma.\n\nPASO 3 — IDENTIFICÁ EL SEGUNDO EXACTO del video (en segundos, desde el inicio) donde esa fase específica es visible y esa parte del cuerpo muestra el error con más claridad. Antes de responder, verificá mentalmente ese segundo mirando el frame correspondiente: ¿el jugador está realmente en la fase del PASO 1 en ese instante (por ejemplo, en el backswing el palo todavía está subiendo, no llegó al finish ni terminó de bajar)? Si no coincide, corregí el segundo hasta que sí coincida — es más importante acertar el momento exacto que ser rápido.\n\nPASO 4 — LOCALIZÁ LA ZONA DEL ERROR: devolvé un bounding box normalizado en escala 0-1000 [ymin,xmin,ymax,xmax] que encierre SOLAMENTE la parte del cuerpo identificada en el PASO 2, ajustado de cerca a esa zona (no el torso completo ni el cuerpo entero). OJO CON LA LATERALIDAD: si el ángulo de cámara es frontal (el jugador mira hacia la cámara), su lado derecho e izquierdo ANATÓMICO quedan invertidos respecto a la pantalla — el brazo/pierna/cadera derecha del jugador aparece del lado IZQUIERDO de la imagen, y viceversa (efecto espejo). Cuando el análisis diga \"derecha\" o \"izquierda\" refiriéndose al cuerpo del jugador, traducilo primero a qué lado de la PANTALLA corresponde antes de calcular xmin/xmax — no asumas que \"derecha del jugador\" es la derecha de la imagen.\n\nPASO 5 — LOCALIZÁ LA ZONA DE CORRECCIÓN: en el MISMO fotograma, indicá un punto de origen y un punto de destino (normalizados 0-1000, [x,y]) para poder dibujar una flecha que muestre hacia dónde debería moverse esa misma parte del cuerpo, coherente con la recomendación del análisis (aplicá el mismo criterio de lateralidad del PASO 4).\n\nRespondé EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni backticks, con este esquema:\n{\"fase_swing\":\"...\",\"parte_cuerpo\":\"...\",\"segundo_critico\":0.0,\"error_bbox\":[0,0,0,0],\"tipo_marca_error\":\"cruz|circulo\",\"texto_error\":\"...\",\"correccion_flecha_origen\":[0,0],\"correccion_flecha_destino\":[0,0],\"texto_correccion\":\"...\"}";
+    const MAX_INTENTOS=3; const ESPERA_MS=[5000,10000]; let lastError="";
+    for (let intento=0;intento<MAX_INTENTOS;intento++) {
+      if (intento>0) Utilities.sleep(ESPERA_MS[intento-1]);
+      const response = UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+GEMINI_API_KEY, { method:"POST", headers:{"Content-Type":"application/json"}, muteHttpExceptions:true, deadline:100, payload:JSON.stringify({contents:[{parts:[{text:prompt},{file_data:{mime_type:"video/mp4",file_uri:fileUri}}]}],generationConfig:{temperature:0.1}}) });
+      const statusCode = response.getResponseCode(); const body = response.getContentText();
+      if (statusCode===503) { lastError="Error Gemini 503 intento "+(intento+1)+": "+body; Logger.log(lastError); continue; }
+      if (statusCode<200||statusCode>=300) throw new Error("Error Gemini "+statusCode+": "+body);
+      const data = JSON.parse(body); const text = data.candidates?.[0]?.content?.parts?.[0]?.text||"";
+      const coords = JSON.parse(text.replace(/```json|```/g,"").trim());
+      return {ok:true,coords};
+    }
+    throw new Error("Gemini no disponible tras "+MAX_INTENTOS+" intentos. "+lastError);
+  } catch(err) { Logger.log("Error _generarCoordenadasErrorSwing: "+err); return {ok:false,error:err.toString()}; }
+}
+
+// Llama a la Cloud Function que dibuja y compone la imagen. driveToken es el
+// OAuth token propio del script (ya tiene scope de Drive) — se lo pasamos a
+// la función para que descargue el video de forma privada, sin tener que
+// hacer público el archivo del alumno ni configurar credenciales de Drive
+// del lado de la Cloud Function.
+function _generarImagenComparativaSwing(driveFileId, coords) {
+  const props = PropertiesService.getScriptProperties();
+  const CLOUD_FUNCTION_URL = props.getProperty("IMG_CLOUD_FUNCTION_URL");
+  const CLOUD_FUNCTION_SECRET = props.getProperty("IMG_CLOUD_FUNCTION_SECRET");
+  if (!CLOUD_FUNCTION_URL || !CLOUD_FUNCTION_SECRET) throw new Error("Falta configurar IMG_CLOUD_FUNCTION_URL / IMG_CLOUD_FUNCTION_SECRET en Script Properties");
+  const videoUrl = "https://www.googleapis.com/drive/v3/files/" + driveFileId + "?alt=media";
+  const driveToken = ScriptApp.getOAuthToken();
+  const response = UrlFetchApp.fetch(CLOUD_FUNCTION_URL, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Auth-Secret": CLOUD_FUNCTION_SECRET }, muteHttpExceptions: true, deadline: 90,
+    payload: JSON.stringify({ video_url: videoUrl, drive_token: driveToken, gemini_json: coords })
+  });
+  const statusCode = response.getResponseCode();
+  const data = JSON.parse(response.getContentText());
+  if (statusCode !== 200 || !data.ok) throw new Error("Cloud Function error: " + (data.error || response.getContentText()));
+  return data.image_base64;
+}
+
+function _enviarImagenWhatsApp(telefono, imageBase64, caption) {
+  const blob = Utilities.newBlob(Utilities.base64Decode(imageBase64), "image/png", "swing_comparativa.png");
+  const uploadRes = UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/media", { method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN }, payload: { messaging_product: "whatsapp", type: "image/png", file: blob } });
+  const uploadData = JSON.parse(uploadRes.getContentText());
+  if (!uploadData.id) throw new Error("Error subiendo media: " + uploadRes.getContentText());
+  UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/messages", {
+    method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN, "Content-Type": "application/json" },
+    payload: JSON.stringify({ messaging_product: "whatsapp", to: telefono, type: "image", image: { id: uploadData.id, caption: caption || "" } })
+  });
+  _logMensaje(telefono, "saliente", "imagen", caption || "");
+}
+
+// Orquesta los 3 pasos de arriba. Se llama después de mandar el análisis de
+// texto — si algo falla acá, el alumno ya recibió su análisis y el menú
+// igual le llega después; solo se pierde este mensaje extra.
+function _enviarImagenComparativaSwing(from, driveFileId, fileUri, analisisTexto) {
+  try {
+    if (!fileUri) throw new Error("No hay fileUri de Gemini para reusar");
+    const coordsRes = _generarCoordenadasErrorSwing(fileUri, analisisTexto);
+    if (!coordsRes.ok) throw new Error(coordsRes.error);
+    Logger.log("Coordenadas swing: " + JSON.stringify(coordsRes.coords));
+    const imageBase64 = _generarImagenComparativaSwing(driveFileId, coordsRes.coords);
+    _enviarImagenWhatsApp(from, imageBase64, "📸 Así se ve tu error y cómo corregirlo");
+  } catch (err) {
+    Logger.log("Error _enviarImagenComparativaSwing (no bloqueante): " + err);
+  }
 }
 
 // ============================================
@@ -1922,9 +2000,25 @@ function _sanitizarNombre(nombre) { return _safeString(nombre).replace(/[^a-zá�
 function _seleccionarEjercicios(perfil, maxEjercicios, ejerciciosExcluidos=[]) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EXERCISES_SHEET); if (!sheet) throw new Error("No encontre "+EXERCISES_SHEET);
   const data = sheet.getDataRange().getValues(); if (data.length<2) return [];
-  const ejercicios=[]; const pa=_normalizeText(perfil.aspecto); const pn=_normalizeText(perfil.nivel);
-  for (let i=1;i<data.length;i++) { const e=_rowToEjercicio(data[i]); if (!_ejercicioValido(e)) continue; if (ejerciciosExcluidos.includes(e.id)) continue; if (e.aspecto===pa && e.nivel===pn) ejercicios.push(e); }
-  return ejercicios.slice(0,maxEjercicios);
+  const pa=_normalizeText(perfil.aspecto); const pn=_normalizeText(perfil.nivel);
+  const validos=[];
+  for (let i=1;i<data.length;i++) { const e=_rowToEjercicio(data[i]); if (!_ejercicioValido(e)) continue; if (ejerciciosExcluidos.includes(e.id)) continue; validos.push(e); }
+  // "Primeras veces" es el nivel mas basico, pero hoy casi no hay ejercicios cargados con ese
+  // nivel exacto en Excercises_Gemini (ni los de aspecto "Primeras veces" — esos usan nivel
+  // "Principiante") -> si no aparece nada, tratamos "Principiante" como el nivel equivalente.
+  const nivelesCandidatos = pn==="primeras veces" ? [pn,"principiante"] : [pn];
+  for (const nv of nivelesCandidatos) {
+    const exacto = validos.filter(e => e.aspecto===pa && e.nivel===nv);
+    if (exacto.length) return exacto.slice(0,maxEjercicios);
+  }
+  // Fallback: si no hay ejercicio para ese aspecto+nivel (hueco en la hoja), mandamos cualquier
+  // ejercicio del mismo nivel antes que nada — mejor un aspecto distinto que dejar al alumno sin
+  // su primer ejercicio gratis.
+  for (const nv of nivelesCandidatos) {
+    const mismoNivel = validos.filter(e => e.nivel===nv);
+    if (mismoNivel.length) return mismoNivel.slice(0,maxEjercicios);
+  }
+  return [];
 }
 function _rowToEjercicio(row) { return {id:_safeString(row[0]),nombre:_safeString(row[1]),instruccion:_safeString(row[2]),aspecto:_normalizeText(row[3]),nivel:_normalizeText(row[4]),video_url:_safeString(row[5]),tipo_ejercicio:_safeString(row[6]),foco_tecnico:_safeString(row[7]),etiqueta_1:_safeString(row[8]),etiqueta_2:_safeString(row[9]),etiqueta_3:_safeString(row[10]),profesor:_safeString(row[11])}; }
 function _ejercicioValido(e) { return e.id && e.nombre && e.nombre!=="pendiente" && e.aspecto!=="pendiente" && e.nivel!=="pendiente" && e.video_url && e.video_url!=="pendiente"; }
@@ -2146,6 +2240,19 @@ function _testEnvioMeta() { _enviarMensajeWhatsApp("56975466327","Test desde App
 function _listarModelosGemini() { const res=UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models?key="+GEMINI_API_KEY,{muteHttpExceptions:true}); const data=JSON.parse(res.getContentText()); Logger.log(data.models?.map(m=>m.name).join("\n")||"Sin modelos"); }
 function _testLogDirecto() { const sheet=SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog"); Logger.log("Sheet: "+(sheet?"SI":"NO")); sheet.appendRow([new Date(),"test123","saliente","texto","prueba directa"]); Logger.log("OK"); }
 function _testGeminiV7() { const resultado=_analizarSwingConGemini("10EFfw5W9gInxH4tDdPugTNVp2-Fnyztv",""); Logger.log(JSON.stringify(resultado)); }
+// Prueba el pipeline completo de la imagen comparativa (Gemini coords + Cloud Function + envío)
+// sin pasar por WhatsApp real: seleccioná esta función en el desplegable del editor y "Ejecutar",
+// después de configurar IMG_CLOUD_FUNCTION_URL / IMG_CLOUD_FUNCTION_SECRET. Mismo driveFileId de
+// prueba que usa _testGeminiV7 y mismo teléfono que usa _testEnvioMeta — cambialos acá si hace falta.
+function _testImagenComparativaSwing() {
+  const driveFileId = "1HmPT990xi8gzUGW5AdoyicWPa6w-h8gk";
+  const telefonoDestino = "56975466327";
+  const resultado = _analizarSwingConGemini(driveFileId, "");
+  Logger.log("Análisis: " + JSON.stringify(resultado));
+  if (!resultado.ok) return;
+  _enviarImagenComparativaSwing(telefonoDestino, driveFileId, resultado.fileUri, "Error principal: " + resultado.analisis.error_principal + ". Detalles: " + resultado.analisis.detalles);
+  Logger.log("Listo — revisá el WhatsApp de " + telefonoDestino + " y los logs de arriba por si _enviarImagenComparativaSwing tiró error (es no-bloqueante, no lanza excepción).");
+}
 // Temporal: probar el template del recordatorio semanal contra un solo número
 // antes de correr enviarRecordatorioSemanal (que le manda a todos los inactivos).
 // Se puede borrar una vez confirmado que el template llega bien.
