@@ -1038,6 +1038,12 @@ function _procesarAnalisisVideo(from, conv, esSegundoVideo) {
     // if (a.angulo === "perfil" || a.angulo === "frontal") {
     //   _enviarImagenComparativaSwing(from, match[1], resultado.fileUri, "Error principal: " + a.error_principal + ". Detalles: " + a.detalles);
     // }
+    // Imagen ilustrativa (enfoque nuevo, WIP en pruebas) — solo para los teléfonos en
+    // IMAGEN_ILUSTRATIVA_TELEFONOS (Script Properties, separados por coma). Sin esa property
+    // configurada no le llega a nadie: seguimos afinando calidad antes de exponerlo a clientes reales.
+    if ((a.angulo === "perfil" || a.angulo === "frontal") && _telefonoHabilitadoImagenIlustrativa(from)) {
+      _enviarImagenIlustrativaSwing(from, a);
+    }
     const nombre = conv.nombre || _obtenerNombreLead(from);
     if (!esSegundoVideo) {
       _enviarMenuPrincipal(from, nombre);
@@ -1756,7 +1762,7 @@ function _analizarSwingConGemini(driveFileId, contextoAdicional, from) {
         contextoHistorico = "\n\nANÁLISIS ANTERIOR del mismo alumno — error detectado: \"" + ultimoAnalisis.error + "\" (severidad: " + ultimoAnalisis.severidad + "). En tu análisis actual, indicá si este problema persiste, mejoró o empeoró. Incorporá esa comparación en el campo 'detalles'.";
       }
     }
-    const prompt = "Sos un coach profesional de golf con 20 años de experiencia analizando swings amateurs. Tu enfoque es amigable y pedagógico para principiantes: identificás el error más crítico y lo explicás de forma natural, usando el vocabulario habitual del club pero evitando tecnicismos complejos de física o biomecánica que abrumen al jugador.\n\nAnalizá el video del swing amateur siguiendo estrictamente estos pasos:\n\nPASO 1 — CONTEXTO DEL TIRO:\nIdentificá qué palo/área está usando el jugador: Drive, Hierros, Approach, Putt, Bunker o General.\n\nPASO 2 — DETECTAR ÁNGULO DE CÁMARA:\n- \"perfil\" (Cámara en la línea del objetivo).\n- \"frontal\" (Cámara de frente al pecho del jugador).\n- \"desconocido\" (Cámara en movimiento, oblicua o ángulo que impide ver el cuerpo/palo).\n*Nota: Si es \"desconocido\", omití el paso 3 y reportá el error de cámara en los detalles técnicos.*\n\nPASO 3 — EVALUAR ERROR CRÍTICO SEGÚN EL ÁNGULO:\nEvaluá las siguientes fases buscando únicamente el error que cause mayor pérdida de consistencia o dirección:\n- Si es PERFIL: Alineación en el stance, inicio del movimiento (takeaway), plano del backswing, downswing, impacto, follow through y finish.\n- Si es FRONTAL: Postura/grip, posición de la cabeza, transferencia de peso en el backswing, y liberación de manos en el impacto.\n\nGUÍA DE LENGUAJE (Equilibrio para Principiantes):\n✔ SÍ PODÉS usar los términos tradicionales y naturales del golf: grip, stance, lie, spin, smash factor, putt, drive, approach, backswing, downswing, follow through, finish.\n❌ EVITÁ jerga compleja de errores o datos de lanzamiento. Buscá alternativas descriptivas y sencillas en español para conceptos como:\n- Errores/Biomecánica: casting (ej: \"soltar las manos antes de tiempo\"), over the top (\"tirar el cuerpo encima\"), chicken wing (\"doblar el codo hacia afuera\"), early extension (\"perder la postura / enderezarse antes de tiempo\"), sway/slide (\"balanceo lateral\"), wrist hinge (\"quiebre de muñecas\"), scooping (\"cucharear\") o topping (\"pegarle arriba\").\n- Datos de radar/física: launch angle, club path, face angle, attack angle, club speed, apex, chunk/duff (\"pegarle pesado/a la tierra\"), o thin shot (\"pegarle finito\")." + contextoStr + "\n\nRespondé EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni backticks. Respetá este esquema:\n{\"angulo\":\"perfil|frontal|desconocido\",\"area\":\"Drive|Hierros|Approach|Putt|Bunker|General\",\"severidad\":\"leve|moderado|importante\",\"error_principal\":\"...\",\"detalles\":\"...\",\"recomendacion\":\"...\"}";
+    const prompt = "Sos un coach profesional de golf con 20 años de experiencia analizando swings amateurs. Tu enfoque es amigable y pedagógico para principiantes: identificás el error más crítico y lo explicás de forma natural, usando el vocabulario habitual del club pero evitando tecnicismos complejos de física o biomecánica que abrumen al jugador.\n\nAnalizá el video del swing amateur siguiendo estrictamente estos pasos:\n\nPASO 1 — CONTEXTO DEL TIRO:\nIdentificá qué palo/área está usando el jugador: Drive, Hierros, Approach, Putt, Bunker o General.\n\nPASO 2 — DETECTAR ÁNGULO DE CÁMARA:\n- \"perfil\" (Cámara en la línea del objetivo).\n- \"frontal\" (Cámara de frente al pecho del jugador).\n- \"desconocido\" (Cámara en movimiento, oblicua o ángulo que impide ver el cuerpo/palo).\n*Nota: Si es \"desconocido\", omití los pasos 3 y 3.5 y reportá el error de cámara en los detalles técnicos.*\n\nPASO 3 — EVALUAR ERROR CRÍTICO SEGÚN EL ÁNGULO:\nEvaluá las siguientes fases buscando únicamente el error que cause mayor pérdida de consistencia o dirección:\n- Si es PERFIL: Alineación en el stance, inicio del movimiento (takeaway), plano del backswing, downswing, impacto, follow through y finish.\n- Si es FRONTAL: Postura/grip, posición de la cabeza, transferencia de peso en el backswing, y liberación de manos en el impacto.\n\nPASO 3.5 — CLASIFICAR FASE:\nIdentificá en qué momento temporal del swing es MÁS VISIBLE el error principal que identificaste en el Paso 3 — independientemente del ángulo de cámara, usá siempre uno de estos mismos valores:\n\"stance\" | \"takeaway\" | \"backswing\" | \"downswing\" | \"impacto\" | \"follow_through\" | \"finish\"\n(ej: un error de transferencia de peso detectado en ángulo frontal normalmente se ve en \"backswing\" o \"downswing\"; un error de liberación de manos normalmente se ve en \"impacto\" — elegí el momento donde el error es más evidente, no necesariamente donde se origina).\nSi el ángulo es \"desconocido\", usá \"no_aplica\".\n\nPASO 3.6 — LATERALIDAD DEL ERROR:\nIndicá de qué lado DEL CUERPO DEL JUGADOR (su propia derecha o izquierda tal cual él la siente, no la de la pantalla) es más visible el error del Paso 3 — ej: cadera derecha, hombro izquierdo, se desplaza hacia su derecha. Usá \"centro\" si el error es simétrico o no tiene un lado predominante (ej: postura general, grip, tempo). Usá \"no_aplica\" si el ángulo es \"desconocido\".\nValores: \"izquierda\" | \"derecha\" | \"centro\" | \"no_aplica\"\n\nGUÍA DE LENGUAJE (Equilibrio para Principiantes):\n✔ SÍ PODÉS usar los términos tradicionales y naturales del golf: grip, stance, lie, spin, smash factor, putt, drive, approach, backswing, downswing, follow through, finish.\n❌ EVITÁ jerga compleja de errores o datos de lanzamiento. Buscá alternativas descriptivas y sencillas en español para conceptos como:\n- Errores/Biomecánica: casting (ej: \"soltar las manos antes de tiempo\"), over the top (\"tirar el cuerpo encima\"), chicken wing (\"doblar el codo hacia afuera\"), early extension (\"perder la postura / enderezarse antes de tiempo\"), sway/slide (\"balanceo lateral\"), wrist hinge (\"quiebre de muñecas\"), scooping (\"cucharear\") o topping (\"pegarle arriba\").\n- Datos de radar/física: launch angle, club path, face angle, attack angle, club speed, apex, chunk/duff (\"pegarle pesado/a la tierra\"), o thin shot (\"pegarle finito\")." + contextoStr + "\n\nRespondé EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni backticks. Respetá este esquema:\n{\"angulo\":\"perfil|frontal|desconocido\",\"area\":\"Drive|Hierros|Approach|Putt|Bunker|General\",\"severidad\":\"leve|moderado|importante\",\"fase\":\"stance|takeaway|backswing|downswing|impacto|follow_through|finish|no_aplica\",\"lado_jugador\":\"izquierda|derecha|centro|no_aplica\",\"error_principal\":\"...\",\"detalles\":\"...\",\"recomendacion\":\"...\"}";
     const MAX_INTENTOS=5; const ESPERA_MS=[5000,10000,20000,30000,40000]; let lastError="";
     for (let intento=0;intento<MAX_INTENTOS;intento++) {
       if (intento>0) Utilities.sleep(ESPERA_MS[intento-1]);
@@ -1852,6 +1858,224 @@ function _enviarImagenComparativaSwing(from, driveFileId, fileUri, analisisTexto
     _enviarImagenWhatsApp(from, imageBase64, "📸 Así se ve tu error y cómo corregirlo");
   } catch (err) {
     Logger.log("Error _enviarImagenComparativaSwing (no bloqueante): " + err);
+  }
+}
+
+// ============================================
+// IMAGEN ILUSTRATIVA DEL SWING (enfoque alternativo, sin video real)
+// ============================================
+// En vez de marcar un fotograma real (pipeline de arriba, con Cloud Function +
+// OpenCV), esto genera una ilustración desde cero a partir del texto del
+// análisis — sin depender de que Gemini ubique con precisión algo sobre el
+// video del alumno. Un solo llamado a Gemini, nada de Cloud Function.
+function _generarImagenIlustrativaSwing(promptTexto, imagenBase) {
+  const MAX_INTENTOS = 3; const ESPERA_MS = [5000, 10000]; let lastError = "";
+  const requestParts = imagenBase
+    ? [{ inlineData: { mimeType: imagenBase.mimeType, data: imagenBase.base64 } }, { text: promptTexto }]
+    : [{ text: promptTexto }];
+  for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+    if (intento > 0) Utilities.sleep(ESPERA_MS[intento - 1]);
+    const response = UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=" + GEMINI_API_KEY, {
+      method: "POST", headers: { "Content-Type": "application/json" }, muteHttpExceptions: true, deadline: 100,
+      payload: JSON.stringify({ contents: [{ parts: requestParts }], generationConfig: { responseModalities: ["IMAGE"] } })
+    });
+    const statusCode = response.getResponseCode(); const body = response.getContentText();
+    if (statusCode === 503) { lastError = "Error Gemini 503 intento " + (intento + 1) + ": " + body; Logger.log(lastError); continue; }
+    if (statusCode < 200 || statusCode >= 300) throw new Error("Error Gemini imagen " + statusCode + ": " + body);
+    const data = JSON.parse(body);
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    const imgPart = parts.find(p => p.inlineData);
+    if (!imgPart) throw new Error("Gemini no devolvio imagen: " + body);
+    return { base64: imgPart.inlineData.data, mimeType: imgPart.inlineData.mimeType };
+  }
+  throw new Error("Gemini no disponible tras " + MAX_INTENTOS + " intentos. " + lastError);
+}
+
+function _anguloDescIlustrativo(angulo) {
+  return angulo === "frontal" ? "frontal (el jugador mirando hacia la cámara)" : angulo === "perfil" ? "de perfil (el jugador de costado)" : "frontal";
+}
+
+// Traduce el lado DEL JUGADOR (como lo describe el análisis, ej: "su cadera derecha") al lado
+// de LA IMAGEN donde hay que dibujar el overlay — resuelto acá en código, no se lo pedimos al
+// modelo de imagen: pedirle que "espeje mentalmente" terminó espejando el panel entero (ver
+// sesión 2026-08-13). En ángulo frontal la cámara mira al jugador de frente, así que su lado
+// derecho aparece del lado izquierdo de la imagen (y viceversa). En perfil no invertimos porque
+// depende de la orientación de la imagen base, no de una regla general.
+function _ladoImagenDesdeLadoJugador(angulo, ladoJugador) {
+  if (ladoJugador !== "izquierda" && ladoJugador !== "derecha") return null;
+  if (angulo === "frontal") return ladoJugador === "derecha" ? "izquierdo" : "derecho";
+  return ladoJugador === "derecha" ? "derecho" : "izquierdo";
+}
+
+// PASO INTERMEDIO del pipeline (nuevo): traduce el análisis de swing — escrito para que el
+// alumno lo LEA, con lenguaje pedagógico y sensorial ("sentí", "imaginá") — a una instrucción
+// puramente VISUAL de qué marcar y cómo exagerarlo, como lo pensaría un coach dibujando sobre un
+// fotograma. Separado del análisis y de la generación de imagen a propósito: pedirle a un solo
+// prompt que razone coaching + lateralidad + estilo + dibujo a la vez le hacía perder fidelidad
+// a la pose de referencia (ver sesión 2026-08-13) — cada paso hace una sola cosa.
+function _direccionVisualSwing(analisis) {
+  const ladoImagen = _ladoImagenDesdeLadoJugador(analisis.angulo, analisis.lado_jugador);
+  const notaLado = ladoImagen ? " (en la imagen, ese lado es el " + ladoImagen + ")" : "";
+  const prompt = "Sos un profesor de golf que marca visualmente los errores sobre fotogramas para sus alumnos — como cuando un coach dibuja círculos, flechas y líneas de referencia sobre una captura de swing en una app de análisis de video.\n\n"
+    + "Análisis de este alumno: ángulo " + analisis.angulo + ", fase " + analisis.fase + ", error: \"" + (analisis.error_principal || "") + "\". Detalle: \"" + (analisis.detalles || "") + "\". Recomendación: \"" + (analisis.recomendacion || "") + "\"" + notaLado + ".\n\n"
+    + "Traducí esto a instrucciones puramente VISUALES para una ilustración estática de esa misma pose (no un video, un dibujo fijo) — nada de sensaciones ni metáforas (\"sentí\", \"imaginá\"), solo descripciones físicas concretas.\n\n"
+    + "La imagen CORRECTA no se toca — es la imagen de referencia tal cual, así que solo necesitás describir qué exagerar en la versión INCORRECTA.\n\n"
+    + "PASO 1 — QUÉ EXAGERAR: una oración, pura descripción física de la pose de referencia llevada al extremo del error. No es solo la postura del cuerpo (cadera/torso/brazos) — también puede ser la posición del palo (plano, ángulo), la cabeza o los pies, lo que corresponda según el error, y pueden combinarse.\n"
+    + "PASO 2 — MARCAS (1 o 2, las mismas se usan en los dos paneles con distinto color): para cada una elegí:\n"
+    + "  - tipo: \"flecha_recta\" (dirección de un movimiento lineal), \"flecha_rotacional\" (arco que indica rotación sobre un eje), \"flecha_desde_palo\" (flecha que sale del palo mostrando plano/dirección), \"linea_referencia\" (línea recta de alineación o plano, ej: a través de la punta de los pies, o desde las manos hasta el piso, o el eje vertical de la cabeza al piso), o \"circulo\" (posición puntual).\n"
+    + "  - zona: qué parte marca (ej: \"cadera\", \"palo\", \"cabeza\", \"pies\", \"eje del cuerpo\").\n"
+    + "  - detalle: si es flecha, hacia dónde apunta EN LA IMAGEN (arriba/abajo/izquierda/derecha), no del jugador; si es línea, qué traza exactamente; si es círculo, puede ir vacío.\n"
+    + "  Usá 2 marcas solo si de verdad ayuda a explicar el error (ej: una en el cuerpo + otra en el palo); si con una alcanza, usá una sola.\n\n"
+    + "Respondé EXCLUSIVAMENTE con JSON válido, sin texto adicional ni backticks:\n{\"que_exagerar\":\"...\",\"marcas\":[{\"tipo\":\"flecha_recta|flecha_rotacional|flecha_desde_palo|linea_referencia|circulo\",\"zona\":\"...\",\"detalle\":\"...\"}]}";
+  const MAX_INTENTOS = 3; const ESPERA_MS = [5000, 10000]; let lastError = "";
+  for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+    if (intento > 0) Utilities.sleep(ESPERA_MS[intento - 1]);
+    const response = UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY, {
+      method: "POST", headers: { "Content-Type": "application/json" }, muteHttpExceptions: true, deadline: 60,
+      payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } })
+    });
+    const statusCode = response.getResponseCode(); const body = response.getContentText();
+    if (statusCode === 503) { lastError = "Error Gemini 503 intento " + (intento + 1) + ": " + body; Logger.log(lastError); continue; }
+    if (statusCode < 200 || statusCode >= 300) throw new Error("Error Gemini direccion visual " + statusCode + ": " + body);
+    const data = JSON.parse(body); const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    return JSON.parse(text.replace(/```json|```/g, "").trim());
+  }
+  throw new Error("Gemini no disponible tras " + MAX_INTENTOS + " intentos. " + lastError);
+}
+
+function _tipoIndicadorTexto(tipo) {
+  if (tipo === "flecha_recta") return "una flecha recta";
+  if (tipo === "flecha_rotacional") return "una flecha en arco (rotacional)";
+  if (tipo === "flecha_desde_palo") return "una flecha que sale del palo de golf";
+  if (tipo === "linea_referencia") return "una línea de referencia";
+  if (tipo === "circulo") return "un círculo";
+  return "una flecha o círculo";
+}
+
+// Arma la descripción de 1 o 2 marcas (ver _direccionVisualSwing) en el color dado, para pegar
+// en el prompt de imagen. "color" es "roja"/"verde" así queda gramaticalmente prolijo en español.
+function _describirMarcas(marcas, color) {
+  if (!marcas || !marcas.length) return "sin marcas adicionales";
+  return marcas.map(m => _tipoIndicadorTexto(m.tipo) + " " + color + " sobre \"" + (m.zona || "") + "\"" + (m.detalle ? " (" + m.detalle + ")" : "")).join(", y ");
+}
+
+// Prompt de edición: usa la imagen base (subida a mano a Drive, ver _buscarImagenBaseSwing) como
+// referencia adjunta, y el spec de _direccionVisualSwing (ya masticado: qué exagerar, qué marcar)
+// en vez del análisis crudo — así el modelo de imagen solo tiene que EJECUTAR, no interpretar
+// coaching + lateralidad + estilo a la vez (eso fue lo que le hizo perder fidelidad a la pose de
+// referencia, ver sesión 2026-08-13).
+function _construirPromptImagenIlustrativa(a, d) {
+  return "Adjunto: imagen de referencia con el golfista en la pose correcta de la fase \"" + (a.fase || "stance") + "\" del swing, ángulo " + _anguloDescIlustrativo(a.angulo) + ".\n\n"
+    + "REGLAS FIJAS — idénticas en los dos paneles, no se tocan:\n"
+    + "- Personaje: misma cara, mismo pelo/barba, misma ropa, misma gorra que la imagen de referencia.\n"
+    + "- Estilo de ilustración: mismo estilo (geométrico, técnico, plano) que la imagen de referencia.\n"
+    + "- Cámara: mismo ángulo, mismo zoom, mismo encuadre que la imagen de referencia — la cámara está fija, NO cambia entre paneles.\n"
+    + "- Fondo: crema (#F8F6E9) en los dos paneles.\n"
+    + "- Texto: PROHIBIDO cualquier texto, letra, número o palabra en la imagen — ni etiquetas, ni marcas de agua, ni nombres. Solo dibujo e iconografía.\n\n"
+    + "PANEL DERECHO (borde verde menta) — versión CORRECTA:\n"
+    + "- La imagen de referencia TAL CUAL, sin ningún cambio de postura.\n"
+    + "- Marcá con " + _describirMarcas(d.marcas, "verde") + ".\n"
+    + "- Ícono ✅ chico en una esquina (sin texto).\n\n"
+    + "PANEL IZQUIERDO (borde rosado) — versión INCORRECTA:\n"
+    + "- Partiendo de la MISMA pose de referencia y la MISMA cámara, modificá la postura del cuerpo, la posición del palo, la cabeza y/o los pies (según corresponda) para exagerar esto: " + (d.que_exagerar || "") + " — tiene que verse claramente distinto al panel derecho, no es la misma postura calcada.\n"
+    + "- No toques el personaje, el estilo ni el ángulo de cámara — solo la pose del jugador cambia.\n"
+    + "- Marcá con " + _describirMarcas(d.marcas, "roja") + ".\n"
+    + "- Ícono ❌ chico en una esquina (sin texto).\n\n"
+    + "Aspecto trabajado: " + (a.area || "") + ". Formato cuadrado 1:1, iluminación uniforme, bordes nítidos, apto para WhatsApp.";
+}
+
+// Mapea el valor de "fase" que devuelve el análisis (_analizarSwingConGemini) al texto que
+// aparece en el nombre de los archivos subidos a mano a Drive (criterio del usuario, no 1 a 1
+// con los nombres internos: "takeaway" se subió como "takeover" y "backswing" como "backswing tope").
+function _faseATextoArchivoBase(fase) {
+  const mapa = { stance:"stance", takeaway:"takeover", backswing:"backswing tope", downswing:"downswing", impacto:"impacto", follow_through:"follow through", finish:"finish" };
+  return mapa[fase] || fase;
+}
+
+// Busca en la carpeta de Drive "Golfito_ImagenesBase" el archivo llamado "<Angulo> - <fase>"
+// (cualquier extensión, mayúsculas/acentos no importan) — las imágenes base las sube a mano el
+// usuario a esa carpeta, con ese criterio de nombre (ej: "Frontal - stance", "Perfil - impacto").
+function _buscarImagenBaseSwing(angulo, fase) {
+  const anguloNombre = angulo === "frontal" ? "Frontal" : angulo === "perfil" ? "Perfil" : "";
+  if (!anguloNombre) throw new Error("Angulo invalido para buscar imagen base: '" + angulo + "'");
+  const nombreEsperado = anguloNombre + " - " + _faseATextoArchivoBase(fase);
+  const claveNormalizada = _normalizeText(nombreEsperado);
+  const folders = DriveApp.getFoldersByName("Golfito_ImagenesBase");
+  if (!folders.hasNext()) throw new Error("No existe la carpeta 'Golfito_ImagenesBase' en Drive");
+  const files = folders.next().getFiles();
+  while (files.hasNext()) {
+    const file = files.next();
+    const nombreSinExt = file.getName().replace(/\.[^.]+$/, "");
+    if (_normalizeText(nombreSinExt) === claveNormalizada) return file;
+  }
+  throw new Error("No hay imagen base subida para '" + nombreEsperado + "' en la carpeta Golfito_ImagenesBase (nombre de archivo esperado, cualquier extensión).");
+}
+
+// Pega el isotipo real de Golfito (LOGO_ISOTIPO_B64, el mismo que usan los PDFs de plan) arriba a
+// la derecha, vía la Cloud Function — no se lo pedimos a la IA para que la marca salga siempre
+// idéntica y nítida, sin depender de que el modelo la dibuje bien.
+function _agregarLogoAImagen(imageBase64) {
+  const props = PropertiesService.getScriptProperties();
+  const CLOUD_FUNCTION_URL = props.getProperty("IMG_CLOUD_FUNCTION_URL");
+  const CLOUD_FUNCTION_SECRET = props.getProperty("IMG_CLOUD_FUNCTION_SECRET");
+  if (!CLOUD_FUNCTION_URL || !CLOUD_FUNCTION_SECRET) throw new Error("Falta configurar IMG_CLOUD_FUNCTION_URL / IMG_CLOUD_FUNCTION_SECRET en Script Properties");
+  const response = UrlFetchApp.fetch(CLOUD_FUNCTION_URL, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Auth-Secret": CLOUD_FUNCTION_SECRET }, muteHttpExceptions: true, deadline: 60,
+    payload: JSON.stringify({ accion: "pegar_logo", image_base64: imageBase64, logo_base64: LOGO_ISOTIPO_B64 })
+  });
+  const statusCode = response.getResponseCode();
+  const data = JSON.parse(response.getContentText());
+  if (statusCode !== 200 || !data.ok) throw new Error("Cloud Function (logo) error: " + (data.error || response.getContentText()));
+  return data.image_base64;
+}
+
+// Gate de rollout: la imagen ilustrativa solo se manda automáticamente a los teléfonos listados
+// en la Script Property "IMAGEN_ILUSTRATIVA_TELEFONOS" (separados por coma, ej: "56949425602,
+// 56975466327"). Sin esa property configurada, la lista queda vacía y no le llega a nadie —
+// fail-closed a propósito, es una feature en pruebas de calidad, no lista para todos los alumnos.
+function _telefonoHabilitadoImagenIlustrativa(telefono) {
+  const lista = PropertiesService.getScriptProperties().getProperty("IMAGEN_ILUSTRATIVA_TELEFONOS") || "";
+  return lista.split(",").map(t => t.trim()).filter(Boolean).includes(telefono);
+}
+
+function _enviarImagenIlustrativaSwing(from, analisis) {
+  try {
+    const baseBlob = _buscarImagenBaseSwing(analisis.angulo, analisis.fase).getBlob();
+    const imagenBase = { base64: Utilities.base64Encode(baseBlob.getBytes()), mimeType: baseBlob.getContentType() };
+    const direccion = _direccionVisualSwing(analisis);
+    Logger.log("Direccion visual: " + JSON.stringify(direccion));
+    const prompt = _construirPromptImagenIlustrativa(analisis, direccion);
+    const img = _generarImagenIlustrativaSwing(prompt, imagenBase);
+    Logger.log("Imagen ilustrativa generada: " + img.mimeType + ", " + img.base64.length + " chars base64");
+    let imagenFinal = img.base64;
+    try {
+      imagenFinal = _agregarLogoAImagen(img.base64);
+    } catch (errLogo) {
+      Logger.log("Error agregando logo (no bloqueante, se manda sin logo): " + errLogo);
+    }
+    _guardarImagenIlustrativaGenerada(from, analisis, direccion, imagenFinal);
+    _enviarImagenWhatsApp(from, imagenFinal, "📸 Así se ve tu error y cómo corregirlo");
+  } catch (err) {
+    Logger.log("Error _enviarImagenIlustrativaSwing (no bloqueante): " + err);
+  }
+}
+
+// Guarda cada imagen generada en Drive (carpeta "Golfito_ImagenesGeneradas") y registra una fila
+// en la hoja "ImagenesIlustrativas" (fecha, teléfono, análisis, dirección visual, link) — para
+// poder repasar desde el Sheet qué se le mandó a cada alumno sin ir a buscarlo en WhatsApp.
+function _guardarImagenIlustrativaGenerada(telefono, analisis, direccion, imageBase64) {
+  try {
+    const NOMBRE_CARPETA = "Golfito_ImagenesGeneradas";
+    const folders = DriveApp.getFoldersByName(NOMBRE_CARPETA);
+    const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(NOMBRE_CARPETA);
+    const blob = Utilities.newBlob(Utilities.base64Decode(imageBase64), "image/png", "swing_" + telefono + "_" + new Date().getTime() + ".png");
+    const file = folder.createFile(blob);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName("ImagenesIlustrativas");
+    if (!sheet) { sheet = ss.insertSheet("ImagenesIlustrativas"); sheet.appendRow(["fecha", "whatsapp", "angulo", "fase", "error_principal", "direccion_visual", "imagen"]); }
+    sheet.appendRow([new Date(), telefono, analisis.angulo, analisis.fase, analisis.error_principal, JSON.stringify(direccion), file.getUrl()]);
+  } catch (err) {
+    Logger.log("Error guardando imagen ilustrativa generada (no bloqueante): " + err);
   }
 }
 
@@ -2255,6 +2479,43 @@ function _testImagenComparativaSwing() {
   if (!resultado.ok) return;
   _enviarImagenComparativaSwing(telefonoDestino, driveFileId, resultado.fileUri, "Error principal: " + resultado.analisis.error_principal + ". Detalles: " + resultado.analisis.detalles);
   Logger.log("Listo — revisá el WhatsApp de " + telefonoDestino + " y los logs de arriba por si _enviarImagenComparativaSwing tiró error (es no-bloqueante, no lanza excepción).");
+}
+// Prueba el enfoque alternativo (ilustración generada por Gemini, sin Cloud Function ni video
+// real) — mismo driveFileId/teléfono que _testImagenComparativaSwing, para comparar ambos enfoques
+// con el mismo análisis de base.
+function _testImagenIlustrativaSwing() {
+  const driveFileId = "1HmPT990xi8gzUGW5AdoyicWPa6w-h8gk";
+  const telefonoDestino = "56975466327";
+  const resultado = _analizarSwingConGemini(driveFileId, "");
+  Logger.log("Análisis: " + JSON.stringify(resultado));
+  if (!resultado.ok) return;
+  _enviarImagenIlustrativaSwing(telefonoDestino, resultado.analisis);
+  Logger.log("Listo — revisá el WhatsApp de " + telefonoDestino + " y los logs de arriba por si _enviarImagenIlustrativaSwing tiró error (es no-bloqueante, no lanza excepción).");
+}
+// Corre el análisis real N veces (repartido entre los 2 videos de prueba que ya usan
+// _testGeminiV7/_testImagenComparativaSwing) y loguea, para cada uno, el análisis crudo y el
+// prompt de imagen ya resuelto (listo para pegar en ChatGPT o donde se quiera comparar) — NO
+// genera la imagen, así se juntan varios casos rápido y barato antes de gastar tiempo/costo
+// generándolas. Ver Ver > Registros después de ejecutar para copiar los prompts.
+function _testPromptsIlustrativa(n) {
+  const videos = [
+    "1HmPT990xi8gzUGW5AdoyicWPa6w-h8gk",
+    "1BaqKGV0OGEuP8y4ZWmdbH47I8KATrE47",
+    "1zv1Ow-Noa_P6ffEX4ivN2bCxF857_E-J",
+    "16UB6J67qs3VPS4tbs_z6W8NCL6qB06TL",
+    "1J7GUSW56CoNzNwo3g6LtH4TcIarR_tqB",
+    "1AlxsnyL4ukMExws5lGuRdMCeGHDtvcVV"
+  ];
+  const veces = n || videos.length;
+  for (let i = 0; i < veces; i++) {
+    const driveFileId = videos[i % videos.length];
+    const resultado = _analizarSwingConGemini(driveFileId, "");
+    if (!resultado.ok) { Logger.log("Caso " + (i + 1) + " (video " + driveFileId + ") — error análisis: " + resultado.error); continue; }
+    let direccion;
+    try { direccion = _direccionVisualSwing(resultado.analisis); } catch (errDir) { Logger.log("Caso " + (i + 1) + " (video " + driveFileId + ") — error dirección visual: " + errDir); continue; }
+    const prompt = _construirPromptImagenIlustrativa(resultado.analisis, direccion);
+    Logger.log("=== Caso " + (i + 1) + " — video " + driveFileId + " ===\nAnálisis: " + JSON.stringify(resultado.analisis) + "\n\nDirección visual: " + JSON.stringify(direccion) + "\n\nPrompt:\n" + prompt + "\n");
+  }
 }
 // Temporal: probar el template del recordatorio semanal contra un solo número
 // antes de correr enviarRecordatorioSemanal (que le manda a todos los inactivos).

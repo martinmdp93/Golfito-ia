@@ -1,7 +1,8 @@
 """
-Cloud Function HTTP: genera una imagen comparativa "antes/despues" de un swing de golf.
+Cloud Function HTTP: utilidades de imagen para el swing de golf. Dos acciones,
+elegidas por el campo "accion" del body (JSON, POST):
 
-Entrada (JSON, POST):
+accion "marcar_video" (default, comportamiento original):
 {
   "video_url":  "https://www.googleapis.com/drive/v3/files/<id>?alt=media",
   "drive_token": "<bearer token OAuth con permiso de lectura sobre ese archivo de Drive>",
@@ -16,13 +17,24 @@ Entrada (JSON, POST):
   }
 }
 
-Header requerido: X-Auth-Secret, debe matchear la variable de entorno FUNCTION_SECRET.
+accion "pegar_logo" (pega el isotipo real de Golfito arriba a la derecha de una
+imagen ya generada — no se le pide el logo a la IA, para que salga siempre
+idéntico y nítido):
+{
+  "accion": "pegar_logo",
+  "image_base64": "<base64 de la imagen sobre la que pegar el logo>",
+  "logo_base64": "<base64 (o data URL) del isotipo, con transparencia>"
+}
 
-Salida (JSON):
+Header requerido en ambos casos: X-Auth-Secret, debe matchear la variable de
+entorno FUNCTION_SECRET.
+
+Salida (JSON) en ambos casos:
   200: {"ok": true, "image_base64": "...", "mime_type": "image/png"}
   4xx/5xx: {"ok": false, "error": "..."}
 """
 import os
+import io
 import tempfile
 import base64
 
@@ -295,13 +307,50 @@ def _generar_imagen(frame_original, gemini_json):
     return _combinar_lado_a_lado(img_antes, img_despues, "ANTES", "DESPUES")
 
 
-@functions_framework.http
-def generar_imagen_comparativa(request):
+def _decodificar_imagen_base64(b64_str, nombre_campo):
+    if not b64_str:
+        raise ErrorEntrada(f"Falta {nombre_campo}")
+    b64_limpio = b64_str.split(",", 1)[-1]  # por si viene con prefijo data:image/png;base64,
+    try:
+        raw = base64.b64decode(b64_limpio)
+    except Exception as e:
+        raise ErrorEntrada(f"{nombre_campo} invalido (no es base64 valido): {e}")
+    try:
+        return Image.open(io.BytesIO(raw)).convert("RGBA")
+    except Exception as e:
+        raise ErrorEntrada(f"{nombre_campo} invalido (no se pudo decodificar como imagen): {e}")
+
+
+def _pegar_logo(imagen, logo_base64):
+    if not logo_base64:
+        return imagen
+    logo = _decodificar_imagen_base64(logo_base64, "logo_base64")
+
+    w, _h = imagen.size
+    margen = int(w * 0.03)
+    ancho_logo = int(w * 0.14)
+    ratio = ancho_logo / logo.width
+    alto_logo = max(1, int(logo.height * ratio))
+    logo_resized = logo.resize((ancho_logo, alto_logo), Image.LANCZOS)
+
+    resultado = imagen.copy()
+    x = w - ancho_logo - margen
+    y = margen
+    resultado.paste(logo_resized, (x, y), logo_resized)
+    return resultado
+
+
+def _accion_pegar_logo(body):
+    imagen = _decodificar_imagen_base64(body.get("image_base64"), "image_base64")
+    imagen_con_logo = _pegar_logo(imagen, body.get("logo_base64"))
+    buf = io.BytesIO()
+    imagen_con_logo.save(buf, format="PNG")
+    return {"ok": True, "image_base64": base64.b64encode(buf.getvalue()).decode("ascii"), "mime_type": "image/png"}, 200
+
+
+def _accion_marcar_video(body):
     tmp_video_path = None
     try:
-        _validar_secreto(request)
-
-        body = request.get_json(silent=True) or {}
         video_url = body.get("video_url")
         gemini_json = body.get("gemini_json") or {}
         drive_token = body.get("drive_token")
@@ -323,6 +372,24 @@ def generar_imagen_comparativa(request):
             "image_base64": base64.b64encode(buf.tobytes()).decode("ascii"),
             "mime_type": "image/png",
         }, 200
+    finally:
+        if tmp_video_path and os.path.exists(tmp_video_path):
+            os.unlink(tmp_video_path)
+
+
+@functions_framework.http
+def generar_imagen_comparativa(request):
+    try:
+        _validar_secreto(request)
+        body = request.get_json(silent=True) or {}
+        accion = body.get("accion") or "marcar_video"
+
+        if accion == "pegar_logo":
+            return _accion_pegar_logo(body)
+        elif accion == "marcar_video":
+            return _accion_marcar_video(body)
+        else:
+            raise ErrorEntrada(f"accion desconocida: {accion}")
 
     except PermissionError as e:
         return {"ok": False, "error": str(e)}, 401
@@ -330,6 +397,3 @@ def generar_imagen_comparativa(request):
         return {"ok": False, "error": str(e)}, 400
     except Exception as e:
         return {"ok": False, "error": f"Error interno: {e}"}, 500
-    finally:
-        if tmp_video_path and os.path.exists(tmp_video_path):
-            os.unlink(tmp_video_path)
