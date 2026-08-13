@@ -2678,8 +2678,8 @@ function _generarBorradoresBancoErrores() {
   let colBorradorPerfil = headers.indexOf("borrador_perfil");
   if (colBorradorFrontal === -1) { colBorradorFrontal = headers.length; sheet.getRange(1, colBorradorFrontal + 1).setValue("borrador_frontal"); headers.push("borrador_frontal"); }
   if (colBorradorPerfil === -1) { colBorradorPerfil = headers.length; sheet.getRange(1, colBorradorPerfil + 1).setValue("borrador_perfil"); headers.push("borrador_perfil"); }
-  const folders = DriveApp.getFoldersByName("Golfito_BancoErrores");
-  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder("Golfito_BancoErrores");
+  const folders = DriveApp.getFoldersByName("Golfito_BancoErrores_Borradores");
+  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder("Golfito_BancoErrores_Borradores");
   const data = sheet.getDataRange().getValues();
   let generados = 0;
   for (let i = 1; i < data.length; i++) {
