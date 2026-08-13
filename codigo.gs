@@ -6,6 +6,7 @@ const SESIONES_SHEET = "Sesiones";
 const EXERCISES_SHEET = "Excercises_Gemini";
 const CONVERSATIONS_SHEET = "Conversations";
 const CONSULTAS_SHEET = "Consultas";
+const BANCO_ERRORES_SHEET = "BancoErrores";
 
 const OPENAI_API_KEY = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
 const MP_ACCESS_TOKEN = PropertiesService.getScriptProperties().getProperty("MP_ACCESS_TOKEN");
@@ -1038,11 +1039,11 @@ function _procesarAnalisisVideo(from, conv, esSegundoVideo) {
     // if (a.angulo === "perfil" || a.angulo === "frontal") {
     //   _enviarImagenComparativaSwing(from, match[1], resultado.fileUri, "Error principal: " + a.error_principal + ". Detalles: " + a.detalles);
     // }
-    // Imagen ilustrativa (enfoque nuevo, WIP en pruebas) — solo para los teléfonos en
-    // IMAGEN_ILUSTRATIVA_TELEFONOS (Script Properties, separados por coma). Sin esa property
-    // configurada no le llega a nadie: seguimos afinando calidad antes de exponerlo a clientes reales.
+    // Imagen del banco de errores curado (Sheet BancoErrores + Drive Golfito_BancoErrores) — sin
+    // generar nada con IA, solo busca la imagen ya armada para tipo_error+angulo. Sigue detrás del
+    // gate de IMAGEN_ILUSTRATIVA_TELEFONOS mientras el banco esté incompleto (todo "pendiente").
     if ((a.angulo === "perfil" || a.angulo === "frontal") && _telefonoHabilitadoImagenIlustrativa(from)) {
-      _enviarImagenIlustrativaSwing(from, a);
+      _enviarImagenBancoErrores(from, a);
     }
     const nombre = conv.nombre || _obtenerNombreLead(from);
     if (!esSegundoVideo) {
@@ -1762,7 +1763,7 @@ function _analizarSwingConGemini(driveFileId, contextoAdicional, from) {
         contextoHistorico = "\n\nANÁLISIS ANTERIOR del mismo alumno — error detectado: \"" + ultimoAnalisis.error + "\" (severidad: " + ultimoAnalisis.severidad + "). En tu análisis actual, indicá si este problema persiste, mejoró o empeoró. Incorporá esa comparación en el campo 'detalles'.";
       }
     }
-    const prompt = "Sos un coach profesional de golf con 20 años de experiencia analizando swings amateurs. Tu enfoque es amigable y pedagógico para principiantes: identificás el error más crítico y lo explicás de forma natural, usando el vocabulario habitual del club pero evitando tecnicismos complejos de física o biomecánica que abrumen al jugador.\n\nAnalizá el video del swing amateur siguiendo estrictamente estos pasos:\n\nPASO 1 — CONTEXTO DEL TIRO:\nIdentificá qué palo/área está usando el jugador: Drive, Hierros, Approach, Putt, Bunker o General.\n\nPASO 2 — DETECTAR ÁNGULO DE CÁMARA:\n- \"perfil\" (Cámara en la línea del objetivo).\n- \"frontal\" (Cámara de frente al pecho del jugador).\n- \"desconocido\" (Cámara en movimiento, oblicua o ángulo que impide ver el cuerpo/palo).\n*Nota: Si es \"desconocido\", omití los pasos 3 y 3.5 y reportá el error de cámara en los detalles técnicos.*\n\nPASO 3 — EVALUAR ERROR CRÍTICO SEGÚN EL ÁNGULO:\nEvaluá las siguientes fases buscando únicamente el error que cause mayor pérdida de consistencia o dirección:\n- Si es PERFIL: Alineación en el stance, inicio del movimiento (takeaway), plano del backswing, downswing, impacto, follow through y finish.\n- Si es FRONTAL: Postura/grip, posición de la cabeza, transferencia de peso en el backswing, y liberación de manos en el impacto.\n\nPASO 3.5 — CLASIFICAR FASE:\nIdentificá en qué momento temporal del swing es MÁS VISIBLE el error principal que identificaste en el Paso 3 — independientemente del ángulo de cámara, usá siempre uno de estos mismos valores:\n\"stance\" | \"takeaway\" | \"backswing\" | \"downswing\" | \"impacto\" | \"follow_through\" | \"finish\"\n(ej: un error de transferencia de peso detectado en ángulo frontal normalmente se ve en \"backswing\" o \"downswing\"; un error de liberación de manos normalmente se ve en \"impacto\" — elegí el momento donde el error es más evidente, no necesariamente donde se origina).\nSi el ángulo es \"desconocido\", usá \"no_aplica\".\n\nPASO 3.6 — LATERALIDAD DEL ERROR:\nIndicá de qué lado DEL CUERPO DEL JUGADOR (su propia derecha o izquierda tal cual él la siente, no la de la pantalla) es más visible el error del Paso 3 — ej: cadera derecha, hombro izquierdo, se desplaza hacia su derecha. Usá \"centro\" si el error es simétrico o no tiene un lado predominante (ej: postura general, grip, tempo). Usá \"no_aplica\" si el ángulo es \"desconocido\".\nValores: \"izquierda\" | \"derecha\" | \"centro\" | \"no_aplica\"\n\nGUÍA DE LENGUAJE (Equilibrio para Principiantes):\n✔ SÍ PODÉS usar los términos tradicionales y naturales del golf: grip, stance, lie, spin, smash factor, putt, drive, approach, backswing, downswing, follow through, finish.\n❌ EVITÁ jerga compleja de errores o datos de lanzamiento. Buscá alternativas descriptivas y sencillas en español para conceptos como:\n- Errores/Biomecánica: casting (ej: \"soltar las manos antes de tiempo\"), over the top (\"tirar el cuerpo encima\"), chicken wing (\"doblar el codo hacia afuera\"), early extension (\"perder la postura / enderezarse antes de tiempo\"), sway/slide (\"balanceo lateral\"), wrist hinge (\"quiebre de muñecas\"), scooping (\"cucharear\") o topping (\"pegarle arriba\").\n- Datos de radar/física: launch angle, club path, face angle, attack angle, club speed, apex, chunk/duff (\"pegarle pesado/a la tierra\"), o thin shot (\"pegarle finito\")." + contextoStr + "\n\nRespondé EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni backticks. Respetá este esquema:\n{\"angulo\":\"perfil|frontal|desconocido\",\"area\":\"Drive|Hierros|Approach|Putt|Bunker|General\",\"severidad\":\"leve|moderado|importante\",\"fase\":\"stance|takeaway|backswing|downswing|impacto|follow_through|finish|no_aplica\",\"lado_jugador\":\"izquierda|derecha|centro|no_aplica\",\"error_principal\":\"...\",\"detalles\":\"...\",\"recomendacion\":\"...\"}";
+    const prompt = "Sos un coach profesional de golf con 20 años de experiencia analizando swings amateurs. Tu enfoque es amigable y pedagógico para principiantes: identificás el error más crítico y lo explicás de forma natural, usando el vocabulario habitual del club pero evitando tecnicismos complejos de física o biomecánica que abrumen al jugador.\n\nAnalizá el video del swing amateur siguiendo estrictamente estos pasos:\n\nPASO 1 — CONTEXTO DEL TIRO:\nIdentificá qué palo/área está usando el jugador: Drive, Hierros, Approach, Putt, Bunker o General.\n\nPASO 2 — DETECTAR ÁNGULO DE CÁMARA:\n- \"perfil\" (Cámara en la línea del objetivo).\n- \"frontal\" (Cámara de frente al pecho del jugador).\n- \"desconocido\" (Cámara en movimiento, oblicua o ángulo que impide ver el cuerpo/palo).\n*Nota: Si es \"desconocido\", omití los pasos 3 y 3.5 y reportá el error de cámara en los detalles técnicos.*\n\nPASO 3 — EVALUAR ERROR CRÍTICO SEGÚN EL ÁNGULO:\nEvaluá las siguientes fases buscando únicamente el error que cause mayor pérdida de consistencia o dirección:\n- Si es PERFIL: Alineación en el stance, inicio del movimiento (takeaway), plano del backswing, downswing, impacto, follow through y finish.\n- Si es FRONTAL: Postura/grip, posición de la cabeza, transferencia de peso en el backswing, y liberación de manos en el impacto.\n\nPASO 3.5 — CLASIFICAR FASE:\nIdentificá en qué momento temporal del swing es MÁS VISIBLE el error principal que identificaste en el Paso 3 — independientemente del ángulo de cámara, usá siempre uno de estos mismos valores:\n\"stance\" | \"takeaway\" | \"backswing\" | \"downswing\" | \"impacto\" | \"follow_through\" | \"finish\"\n(ej: un error de transferencia de peso detectado en ángulo frontal normalmente se ve en \"backswing\" o \"downswing\"; un error de liberación de manos normalmente se ve en \"impacto\" — elegí el momento donde el error es más evidente, no necesariamente donde se origina).\nSi el ángulo es \"desconocido\", usá \"no_aplica\".\n\nPASO 3.6 — LATERALIDAD DEL ERROR:\nIndicá de qué lado DEL CUERPO DEL JUGADOR (su propia derecha o izquierda tal cual él la siente, no la de la pantalla) es más visible el error del Paso 3 — ej: cadera derecha, hombro izquierdo, se desplaza hacia su derecha. Usá \"centro\" si el error es simétrico o no tiene un lado predominante (ej: postura general, grip, tempo). Usá \"no_aplica\" si el ángulo es \"desconocido\".\nValores: \"izquierda\" | \"derecha\" | \"centro\" | \"no_aplica\"\n\nPASO 3.7 — CATEGORÍA DEL ERROR:\nClasificá el error principal del Paso 3 en UNA sola de estas categorías fijas (elegí la más cercana aunque no sea 100% exacta):\n\"casting\" (soltar las manos antes de tiempo) | \"over_the_top\" (tirar el cuerpo/palo por encima del plano) | \"chicken_wing\" (doblar el codo hacia afuera) | \"early_extension\" (perder la postura, enderezarse antes de tiempo) | \"sway_slide\" (balanceo lateral del cuerpo en vez de rotar) | \"wrist_hinge\" (quiebre de muñecas incorrecto) | \"scooping\" (cucharear en el impacto) | \"topping\" (pegarle arriba de la bola) | \"chunk_duff\" (pegarle pesado, a la tierra antes que a la bola) | \"postura_grip\" (problema de postura o grip inicial, en el stance) | \"transferencia_peso\" (mala transferencia de peso entre backswing e impacto) | \"rotacion_insuficiente\" (falta de rotación de hombros/caderas) | \"cabeza_movida\" (cabeza inestable durante el swing) | \"otro\" (no encaja en ninguna anterior)\nSi el ángulo es \"desconocido\", usá \"otro\".\n\nGUÍA DE LENGUAJE (Equilibrio para Principiantes):\n✔ SÍ PODÉS usar los términos tradicionales y naturales del golf: grip, stance, lie, spin, smash factor, putt, drive, approach, backswing, downswing, follow through, finish.\n❌ EVITÁ jerga compleja de errores o datos de lanzamiento. Buscá alternativas descriptivas y sencillas en español para conceptos como:\n- Errores/Biomecánica: casting (ej: \"soltar las manos antes de tiempo\"), over the top (\"tirar el cuerpo encima\"), chicken wing (\"doblar el codo hacia afuera\"), early extension (\"perder la postura / enderezarse antes de tiempo\"), sway/slide (\"balanceo lateral\"), wrist hinge (\"quiebre de muñecas\"), scooping (\"cucharear\") o topping (\"pegarle arriba\").\n- Datos de radar/física: launch angle, club path, face angle, attack angle, club speed, apex, chunk/duff (\"pegarle pesado/a la tierra\"), o thin shot (\"pegarle finito\")." + contextoStr + "\n\nRespondé EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni backticks. Respetá este esquema:\n{\"angulo\":\"perfil|frontal|desconocido\",\"area\":\"Drive|Hierros|Approach|Putt|Bunker|General\",\"severidad\":\"leve|moderado|importante\",\"fase\":\"stance|takeaway|backswing|downswing|impacto|follow_through|finish|no_aplica\",\"lado_jugador\":\"izquierda|derecha|centro|no_aplica\",\"tipo_error\":\"casting|over_the_top|chicken_wing|early_extension|sway_slide|wrist_hinge|scooping|topping|chunk_duff|postura_grip|transferencia_peso|rotacion_insuficiente|cabeza_movida|otro\",\"error_principal\":\"...\",\"detalles\":\"...\",\"recomendacion\":\"...\"}";
     const MAX_INTENTOS=5; const ESPERA_MS=[5000,10000,20000,30000,40000]; let lastError="";
     for (let intento=0;intento<MAX_INTENTOS;intento++) {
       if (intento>0) Utilities.sleep(ESPERA_MS[intento-1]);
@@ -2038,6 +2039,47 @@ function _telefonoHabilitadoImagenIlustrativa(telefono) {
   return lista.split(",").map(t => t.trim()).filter(Boolean).includes(telefono);
 }
 
+// Extrae el fileId de un link de Drive ("https://drive.google.com/file/d/XXXX/view...") o lo usa
+// tal cual si ya viene como fileId pelado — para no depender del formato exacto que se pegue en
+// la columna imagen_frontal/imagen_perfil del Sheet BancoErrores.
+function _extraerDriveFileId(urlOId) {
+  const valor = _safeString(urlOId);
+  const match = valor.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (match) return match[1];
+  return /^[a-zA-Z0-9_-]{15,}$/.test(valor) ? valor : null;
+}
+
+// Banco de errores curado: busca en el Sheet BancoErrores la fila de analisis.tipo_error y manda
+// la imagen ya armada (Drive) que corresponda al ángulo — reemplaza el pipeline de generación por
+// IA (_enviarImagenIlustrativaSwing, más abajo) que quedó inconsistente en calidad (ver sesión
+// 2026-08-13). Si la categoría no tiene imagen cargada todavía ("pendiente" o vacío), no manda
+// nada — el alumno igual recibió el análisis en texto, esto es un extra.
+function _enviarImagenBancoErrores(from, analisis) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BANCO_ERRORES_SHEET);
+    if (!sheet) return;
+    const data = sheet.getDataRange().getValues();
+    const colImagen = analisis.angulo === "perfil" ? 4 : 3; // 0-index: codigo,nombre,descripcion,imagen_frontal,imagen_perfil
+    for (let i = 1; i < data.length; i++) {
+      if (_safeString(data[i][0]) !== _safeString(analisis.tipo_error)) continue;
+      const valorImagen = _safeString(data[i][colImagen]);
+      if (!valorImagen || valorImagen.toLowerCase() === "pendiente") return;
+      const fileId = _extraerDriveFileId(valorImagen);
+      if (!fileId) return;
+      const blob = DriveApp.getFileById(fileId).getBlob();
+      const base64 = Utilities.base64Encode(blob.getBytes());
+      _enviarImagenWhatsApp(from, base64, "📸 Así se ve tu error y cómo corregirlo");
+      return;
+    }
+  } catch (err) {
+    Logger.log("Error _enviarImagenBancoErrores (no bloqueante): " + err);
+  }
+}
+
+// A PARTIR DE ACÁ: pipeline de generación por IA (análisis -> dirección visual -> imagen). Quedó
+// desconectado del flujo real (ver _enviarImagenBancoErrores arriba) porque la calidad no fue
+// consistente, pero sigue funcional para generar BORRADORES a mano (via _testImagenIlustrativaSwing
+// / _testPromptsIlustrativa) que después se curan y suben como banco definitivo.
 function _enviarImagenIlustrativaSwing(from, analisis) {
   try {
     const baseBlob = _buscarImagenBaseSwing(analisis.angulo, analisis.fase).getBlob();
@@ -2515,6 +2557,47 @@ function _testPromptsIlustrativa(n) {
     try { direccion = _direccionVisualSwing(resultado.analisis); } catch (errDir) { Logger.log("Caso " + (i + 1) + " (video " + driveFileId + ") — error dirección visual: " + errDir); continue; }
     const prompt = _construirPromptImagenIlustrativa(resultado.analisis, direccion);
     Logger.log("=== Caso " + (i + 1) + " — video " + driveFileId + " ===\nAnálisis: " + JSON.stringify(resultado.analisis) + "\n\nDirección visual: " + JSON.stringify(direccion) + "\n\nPrompt:\n" + prompt + "\n");
+  }
+}
+
+// Setup de una sola vez para el banco de errores curado: crea el Sheet "BancoErrores" con las
+// 14 categorías precargadas (imagen_frontal/imagen_perfil en "pendiente" hasta que se suba cada
+// imagen a mano) y la carpeta de Drive "Golfito_BancoErrores" donde van esas imágenes. Si el
+// Sheet ya existe no lo toca (para no pisar imágenes ya cargadas si se corre de nuevo por error).
+function _setupBancoErrores() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(BANCO_ERRORES_SHEET);
+  if (sheet) {
+    Logger.log("Sheet '" + BANCO_ERRORES_SHEET + "' ya existía, no se tocó.");
+  } else {
+    sheet = ss.insertSheet(BANCO_ERRORES_SHEET);
+    sheet.appendRow(["codigo", "nombre", "descripcion", "imagen_frontal", "imagen_perfil"]);
+    const categorias = [
+      ["casting", "Soltar las manos antes de tiempo", "Se pierde el ángulo de muñecas muy pronto en el downswing"],
+      ["over_the_top", "Tirar el cuerpo/palo por encima", "El palo baja por fuera del plano, cruzando hacia afuera"],
+      ["chicken_wing", "Doblar el codo hacia afuera", "Brazo izquierdo se dobla en el follow through"],
+      ["early_extension", "Perder la postura / enderezarse", "El cuerpo se endereza antes de tiempo en el downswing"],
+      ["sway_slide", "Balanceo lateral", "El cuerpo se desplaza de lado en vez de rotar"],
+      ["wrist_hinge", "Quiebre de muñecas incorrecto", "Mal timing o ángulo del quiebre de muñecas"],
+      ["scooping", "Cucharear", "Manos \"levantan\" la bola en el impacto en vez de comprimirla"],
+      ["topping", "Pegarle arriba de la bola", "Contacto muy alto en la bola"],
+      ["chunk_duff", "Pegarle pesado / a la tierra antes", "Contacto con el pasto antes que con la bola"],
+      ["postura_grip", "Postura o grip inicial", "Problema desde el stance/setup"],
+      ["transferencia_peso", "Mala transferencia de peso", "El peso no pasa bien del backswing al impacto"],
+      ["rotacion_insuficiente", "Falta de rotación", "Hombros/caderas no rotan lo suficiente"],
+      ["cabeza_movida", "Cabeza inestable", "Se mueve demasiado durante el swing"],
+      ["otro", "Otro", "No encaja en ninguna categoría anterior — fallback, sin imagen"]
+    ];
+    categorias.forEach(c => sheet.appendRow([c[0], c[1], c[2], "pendiente", "pendiente"]));
+    Logger.log("Sheet '" + BANCO_ERRORES_SHEET + "' creada con " + categorias.length + " categorías.");
+  }
+  const NOMBRE_CARPETA = "Golfito_BancoErrores";
+  const folders = DriveApp.getFoldersByName(NOMBRE_CARPETA);
+  if (folders.hasNext()) {
+    Logger.log("Carpeta Drive '" + NOMBRE_CARPETA + "' ya existía.");
+  } else {
+    DriveApp.createFolder(NOMBRE_CARPETA);
+    Logger.log("Carpeta Drive '" + NOMBRE_CARPETA + "' creada.");
   }
 }
 // Temporal: probar el template del recordatorio semanal contra un solo número
