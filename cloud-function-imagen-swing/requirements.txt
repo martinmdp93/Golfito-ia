@@ -1,5 +1,0 @@
-functions-framework==3.*
-opencv-python-headless==4.*
-numpy==1.*
-requests==2.*
-Pillow>=10.1

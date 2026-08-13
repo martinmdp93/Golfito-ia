@@ -1033,12 +1033,6 @@ function _procesarAnalisisVideo(from, conv, esSegundoVideo) {
     const a = resultado.analisis;
     const titulo = esSegundoVideo ? "\ud83e\udd16 *An\u00e1lisis complementario (" + a.angulo + ")*" : "\ud83e\udd16 *An\u00e1lisis de tu swing (" + a.angulo + ")*";
     _enviarMensajeWhatsApp(from, titulo + "\n\n\ud83c\udfaf *Error principal:* " + a.error_principal + "\n\ud83d\udcca *Severidad:* " + a.severidad + "\n\n\ud83d\udcdd *Detalles:*\n" + a.detalles + "\n\n\ud83d\udca1 *Recomendaci\u00f3n:*\n" + a.recomendacion + "\n\nCuando vuelvas a la pr\u00e1ctica, mandame un video nuevo as\u00ed llevamos tu evoluci\u00f3n \ud83d\udcaa");
-    // Desactivado hasta terminar de afinar la precision del prompt de coordenadas (WIP) -
-    // no mandar automaticamente a clientes reales todavia. Sigue disponible para probar
-    // a mano via _testImagenComparativaSwing.
-    // if (a.angulo === "perfil" || a.angulo === "frontal") {
-    //   _enviarImagenComparativaSwing(from, match[1], resultado.fileUri, "Error principal: " + a.error_principal + ". Detalles: " + a.detalles);
-    // }
     // Imagen del banco de errores curado (Sheet BancoErrores + Drive Golfito_BancoErrores) — no
     // genera nada con IA en este paso, solo clasifica contra el Sheet y manda la imagen ya armada
     // si existe. Si no hay match o falta la imagen, no le llega nada al alumno (ya tiene el
@@ -1788,53 +1782,6 @@ function analizarSwingPanelConGemini(driveFileId, token) {
   return _analizarSwingConGemini(driveFileId, "", "");
 }
 
-// ============================================
-// IMAGEN COMPARATIVA DEL SWING (antes/despues)
-// ============================================
-// Complementa el análisis de texto con una imagen: un fotograma del error
-// marcado (cruz/círculo) al lado del mismo fotograma con una flecha verde de
-// corrección. No bloquea el resto de la conversación si falla: es un extra
-// sobre el análisis de texto, no un paso crítico del flujo.
-function _generarCoordenadasErrorSwing(fileUri, analisisTexto) {
-  try {
-    const prompt = "Sos un coach profesional de golf analizando un video de swing amateur. Ya le hiciste este análisis de texto al alumno sobre ESTE MISMO video — es la única fuente de verdad sobre cuál es el error, en qué momento del swing ocurre y qué parte del cuerpo lo causa:\n\"" + (analisisTexto||"") + "\"\n\nTu tarea ahora es encontrar el fotograma EXACTO del video que muestra ESE error puntual, para poder marcarlo visualmente. Es crítico que el fotograma corresponda al MISMO MOMENTO del swing que describe el análisis: si el análisis habla del backswing (subida del palo), buscá el fotograma en esa fase — NO uses el finish, el follow through ni el impacto salvo que el análisis se refiera explícitamente a esa fase. Es igual de crítico que marques la MISMA parte del cuerpo que nombra el análisis como causante del error (por ejemplo, si dice \"soltar las manos\", el bounding box va en las manos/muñecas, NO en la cadera ni en otra parte que se vea llamativa en ese fotograma).\n\nPASO 1 — Basándote pura y exclusivamente en el texto de arriba, identificá en qué fase ocurre el error: stance, takeaway, backswing, transición, downswing, impacto, follow through o finish.\n\nPASO 2 — Identificá la parte específica del cuerpo que el análisis señala como causante del error (ej: \"manos y muñecas\", \"rodilla izquierda\", \"cadera\", \"hombros\", \"cabeza\"). Si el texto no la nombra literalmente, inferí la parte anatómica que ejecuta la acción descripta (ej. \"soltar las manos antes de tiempo\" → manos/muñecas; \"balanceo lateral\" → cadera/torso). No elijas una parte del cuerpo distinta solo porque se vea más visible en el fotograma.\n\nPASO 3 — IDENTIFICÁ EL SEGUNDO EXACTO del video (en segundos, desde el inicio) donde esa fase específica es visible y esa parte del cuerpo muestra el error con más claridad. Antes de responder, verificá mentalmente ese segundo mirando el frame correspondiente: ¿el jugador está realmente en la fase del PASO 1 en ese instante (por ejemplo, en el backswing el palo todavía está subiendo, no llegó al finish ni terminó de bajar)? Si no coincide, corregí el segundo hasta que sí coincida — es más importante acertar el momento exacto que ser rápido.\n\nPASO 4 — LOCALIZÁ LA ZONA DEL ERROR: devolvé un bounding box normalizado en escala 0-1000 [ymin,xmin,ymax,xmax] que encierre SOLAMENTE la parte del cuerpo identificada en el PASO 2, ajustado de cerca a esa zona (no el torso completo ni el cuerpo entero). OJO CON LA LATERALIDAD: si el ángulo de cámara es frontal (el jugador mira hacia la cámara), su lado derecho e izquierdo ANATÓMICO quedan invertidos respecto a la pantalla — el brazo/pierna/cadera derecha del jugador aparece del lado IZQUIERDO de la imagen, y viceversa (efecto espejo). Cuando el análisis diga \"derecha\" o \"izquierda\" refiriéndose al cuerpo del jugador, traducilo primero a qué lado de la PANTALLA corresponde antes de calcular xmin/xmax — no asumas que \"derecha del jugador\" es la derecha de la imagen.\n\nPASO 5 — LOCALIZÁ LA ZONA DE CORRECCIÓN: en el MISMO fotograma, indicá un punto de origen y un punto de destino (normalizados 0-1000, [x,y]) para poder dibujar una flecha que muestre hacia dónde debería moverse esa misma parte del cuerpo, coherente con la recomendación del análisis (aplicá el mismo criterio de lateralidad del PASO 4).\n\nRespondé EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni backticks, con este esquema:\n{\"fase_swing\":\"...\",\"parte_cuerpo\":\"...\",\"segundo_critico\":0.0,\"error_bbox\":[0,0,0,0],\"tipo_marca_error\":\"cruz|circulo\",\"texto_error\":\"...\",\"correccion_flecha_origen\":[0,0],\"correccion_flecha_destino\":[0,0],\"texto_correccion\":\"...\"}";
-    const MAX_INTENTOS=3; const ESPERA_MS=[5000,10000]; let lastError="";
-    for (let intento=0;intento<MAX_INTENTOS;intento++) {
-      if (intento>0) Utilities.sleep(ESPERA_MS[intento-1]);
-      const response = UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+GEMINI_API_KEY, { method:"POST", headers:{"Content-Type":"application/json"}, muteHttpExceptions:true, deadline:100, payload:JSON.stringify({contents:[{parts:[{text:prompt},{file_data:{mime_type:"video/mp4",file_uri:fileUri}}]}],generationConfig:{temperature:0.1}}) });
-      const statusCode = response.getResponseCode(); const body = response.getContentText();
-      if (statusCode===503) { lastError="Error Gemini 503 intento "+(intento+1)+": "+body; Logger.log(lastError); continue; }
-      if (statusCode<200||statusCode>=300) throw new Error("Error Gemini "+statusCode+": "+body);
-      const data = JSON.parse(body); const text = data.candidates?.[0]?.content?.parts?.[0]?.text||"";
-      const coords = JSON.parse(text.replace(/```json|```/g,"").trim());
-      return {ok:true,coords};
-    }
-    throw new Error("Gemini no disponible tras "+MAX_INTENTOS+" intentos. "+lastError);
-  } catch(err) { Logger.log("Error _generarCoordenadasErrorSwing: "+err); return {ok:false,error:err.toString()}; }
-}
-
-// Llama a la Cloud Function que dibuja y compone la imagen. driveToken es el
-// OAuth token propio del script (ya tiene scope de Drive) — se lo pasamos a
-// la función para que descargue el video de forma privada, sin tener que
-// hacer público el archivo del alumno ni configurar credenciales de Drive
-// del lado de la Cloud Function.
-function _generarImagenComparativaSwing(driveFileId, coords) {
-  const props = PropertiesService.getScriptProperties();
-  const CLOUD_FUNCTION_URL = props.getProperty("IMG_CLOUD_FUNCTION_URL");
-  const CLOUD_FUNCTION_SECRET = props.getProperty("IMG_CLOUD_FUNCTION_SECRET");
-  if (!CLOUD_FUNCTION_URL || !CLOUD_FUNCTION_SECRET) throw new Error("Falta configurar IMG_CLOUD_FUNCTION_URL / IMG_CLOUD_FUNCTION_SECRET en Script Properties");
-  const videoUrl = "https://www.googleapis.com/drive/v3/files/" + driveFileId + "?alt=media";
-  const driveToken = ScriptApp.getOAuthToken();
-  const response = UrlFetchApp.fetch(CLOUD_FUNCTION_URL, {
-    method: "POST", headers: { "Content-Type": "application/json", "X-Auth-Secret": CLOUD_FUNCTION_SECRET }, muteHttpExceptions: true, deadline: 90,
-    payload: JSON.stringify({ video_url: videoUrl, drive_token: driveToken, gemini_json: coords })
-  });
-  const statusCode = response.getResponseCode();
-  const data = JSON.parse(response.getContentText());
-  if (statusCode !== 200 || !data.ok) throw new Error("Cloud Function error: " + (data.error || response.getContentText()));
-  return data.image_base64;
-}
-
 function _enviarImagenWhatsApp(telefono, imageBase64, caption) {
   const blob = Utilities.newBlob(Utilities.base64Decode(imageBase64), "image/png", "swing_comparativa.png");
   const uploadRes = UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/media", { method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN }, payload: { messaging_product: "whatsapp", type: "image/png", file: blob } });
@@ -1845,190 +1792,6 @@ function _enviarImagenWhatsApp(telefono, imageBase64, caption) {
     payload: JSON.stringify({ messaging_product: "whatsapp", to: telefono, type: "image", image: { id: uploadData.id, caption: caption || "" } })
   });
   _logMensaje(telefono, "saliente", "imagen", caption || "");
-}
-
-// Orquesta los 3 pasos de arriba. Se llama después de mandar el análisis de
-// texto — si algo falla acá, el alumno ya recibió su análisis y el menú
-// igual le llega después; solo se pierde este mensaje extra.
-function _enviarImagenComparativaSwing(from, driveFileId, fileUri, analisisTexto) {
-  try {
-    if (!fileUri) throw new Error("No hay fileUri de Gemini para reusar");
-    const coordsRes = _generarCoordenadasErrorSwing(fileUri, analisisTexto);
-    if (!coordsRes.ok) throw new Error(coordsRes.error);
-    Logger.log("Coordenadas swing: " + JSON.stringify(coordsRes.coords));
-    const imageBase64 = _generarImagenComparativaSwing(driveFileId, coordsRes.coords);
-    _enviarImagenWhatsApp(from, imageBase64, "📸 Así se ve tu error y cómo corregirlo");
-  } catch (err) {
-    Logger.log("Error _enviarImagenComparativaSwing (no bloqueante): " + err);
-  }
-}
-
-// ============================================
-// IMAGEN ILUSTRATIVA DEL SWING (enfoque alternativo, sin video real)
-// ============================================
-// En vez de marcar un fotograma real (pipeline de arriba, con Cloud Function +
-// OpenCV), esto genera una ilustración desde cero a partir del texto del
-// análisis — sin depender de que Gemini ubique con precisión algo sobre el
-// video del alumno. Un solo llamado a Gemini, nada de Cloud Function.
-function _generarImagenIlustrativaSwing(promptTexto, imagenBase) {
-  const MAX_INTENTOS = 3; const ESPERA_MS = [5000, 10000]; let lastError = "";
-  const requestParts = imagenBase
-    ? [{ inlineData: { mimeType: imagenBase.mimeType, data: imagenBase.base64 } }, { text: promptTexto }]
-    : [{ text: promptTexto }];
-  for (let intento = 0; intento < MAX_INTENTOS; intento++) {
-    if (intento > 0) Utilities.sleep(ESPERA_MS[intento - 1]);
-    const response = UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=" + GEMINI_API_KEY, {
-      method: "POST", headers: { "Content-Type": "application/json" }, muteHttpExceptions: true, deadline: 100,
-      payload: JSON.stringify({ contents: [{ parts: requestParts }], generationConfig: { responseModalities: ["IMAGE"] } })
-    });
-    const statusCode = response.getResponseCode(); const body = response.getContentText();
-    if (statusCode === 503) { lastError = "Error Gemini 503 intento " + (intento + 1) + ": " + body; Logger.log(lastError); continue; }
-    if (statusCode < 200 || statusCode >= 300) throw new Error("Error Gemini imagen " + statusCode + ": " + body);
-    const data = JSON.parse(body);
-    const parts = data.candidates?.[0]?.content?.parts || [];
-    const imgPart = parts.find(p => p.inlineData);
-    if (!imgPart) throw new Error("Gemini no devolvio imagen: " + body);
-    return { base64: imgPart.inlineData.data, mimeType: imgPart.inlineData.mimeType };
-  }
-  throw new Error("Gemini no disponible tras " + MAX_INTENTOS + " intentos. " + lastError);
-}
-
-function _anguloDescIlustrativo(angulo) {
-  return angulo === "frontal" ? "frontal (el jugador mirando hacia la cámara)" : angulo === "perfil" ? "de perfil (el jugador de costado)" : "frontal";
-}
-
-// Traduce el lado DEL JUGADOR (como lo describe el análisis, ej: "su cadera derecha") al lado
-// de LA IMAGEN donde hay que dibujar el overlay — resuelto acá en código, no se lo pedimos al
-// modelo de imagen: pedirle que "espeje mentalmente" terminó espejando el panel entero (ver
-// sesión 2026-08-13). En ángulo frontal la cámara mira al jugador de frente, así que su lado
-// derecho aparece del lado izquierdo de la imagen (y viceversa). En perfil no invertimos porque
-// depende de la orientación de la imagen base, no de una regla general.
-function _ladoImagenDesdeLadoJugador(angulo, ladoJugador) {
-  if (ladoJugador !== "izquierda" && ladoJugador !== "derecha") return null;
-  if (angulo === "frontal") return ladoJugador === "derecha" ? "izquierdo" : "derecho";
-  return ladoJugador === "derecha" ? "derecho" : "izquierdo";
-}
-
-// PASO INTERMEDIO del pipeline (nuevo): traduce el análisis de swing — escrito para que el
-// alumno lo LEA, con lenguaje pedagógico y sensorial ("sentí", "imaginá") — a una instrucción
-// puramente VISUAL de qué marcar y cómo exagerarlo, como lo pensaría un coach dibujando sobre un
-// fotograma. Separado del análisis y de la generación de imagen a propósito: pedirle a un solo
-// prompt que razone coaching + lateralidad + estilo + dibujo a la vez le hacía perder fidelidad
-// a la pose de referencia (ver sesión 2026-08-13) — cada paso hace una sola cosa.
-function _direccionVisualSwing(analisis) {
-  const ladoImagen = _ladoImagenDesdeLadoJugador(analisis.angulo, analisis.lado_jugador);
-  const notaLado = ladoImagen ? " (en la imagen, ese lado es el " + ladoImagen + ")" : "";
-  const prompt = "Sos un profesor de golf que marca visualmente los errores sobre fotogramas para sus alumnos — como cuando un coach dibuja círculos, flechas y líneas de referencia sobre una captura de swing en una app de análisis de video.\n\n"
-    + "Análisis de este alumno: ángulo " + analisis.angulo + ", fase " + analisis.fase + ", error: \"" + (analisis.error_principal || "") + "\". Detalle: \"" + (analisis.detalles || "") + "\". Recomendación: \"" + (analisis.recomendacion || "") + "\"" + notaLado + ".\n\n"
-    + "Traducí esto a instrucciones puramente VISUALES para una ilustración estática de esa misma pose (no un video, un dibujo fijo) — nada de sensaciones ni metáforas (\"sentí\", \"imaginá\"), solo descripciones físicas concretas.\n\n"
-    + "La imagen CORRECTA no se toca — es la imagen de referencia tal cual, así que solo necesitás describir qué exagerar en la versión INCORRECTA.\n\n"
-    + "PASO 1 — QUÉ EXAGERAR: una oración, pura descripción física de la pose de referencia llevada al extremo del error. No es solo la postura del cuerpo (cadera/torso/brazos) — también puede ser la posición del palo (plano, ángulo), la cabeza o los pies, lo que corresponda según el error, y pueden combinarse.\n"
-    + "PASO 2 — MARCAS (1 o 2, las mismas se usan en los dos paneles con distinto color): para cada una elegí:\n"
-    + "  - tipo: \"flecha_recta\" (dirección de un movimiento lineal), \"flecha_rotacional\" (arco que indica rotación sobre un eje), \"flecha_desde_palo\" (flecha que sale del palo mostrando plano/dirección), \"linea_referencia\" (línea recta de alineación o plano, ej: a través de la punta de los pies, o desde las manos hasta el piso, o el eje vertical de la cabeza al piso), o \"circulo\" (posición puntual).\n"
-    + "  - zona: qué parte marca (ej: \"cadera\", \"palo\", \"cabeza\", \"pies\", \"eje del cuerpo\").\n"
-    + "  - detalle: si es flecha, hacia dónde apunta EN LA IMAGEN (arriba/abajo/izquierda/derecha), no del jugador; si es línea, qué traza exactamente; si es círculo, puede ir vacío.\n"
-    + "  Usá 2 marcas solo si de verdad ayuda a explicar el error (ej: una en el cuerpo + otra en el palo); si con una alcanza, usá una sola.\n\n"
-    + "Respondé EXCLUSIVAMENTE con JSON válido, sin texto adicional ni backticks:\n{\"que_exagerar\":\"...\",\"marcas\":[{\"tipo\":\"flecha_recta|flecha_rotacional|flecha_desde_palo|linea_referencia|circulo\",\"zona\":\"...\",\"detalle\":\"...\"}]}";
-  const MAX_INTENTOS = 3; const ESPERA_MS = [5000, 10000]; let lastError = "";
-  for (let intento = 0; intento < MAX_INTENTOS; intento++) {
-    if (intento > 0) Utilities.sleep(ESPERA_MS[intento - 1]);
-    const response = UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY, {
-      method: "POST", headers: { "Content-Type": "application/json" }, muteHttpExceptions: true, deadline: 60,
-      payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } })
-    });
-    const statusCode = response.getResponseCode(); const body = response.getContentText();
-    if (statusCode === 503) { lastError = "Error Gemini 503 intento " + (intento + 1) + ": " + body; Logger.log(lastError); continue; }
-    if (statusCode < 200 || statusCode >= 300) throw new Error("Error Gemini direccion visual " + statusCode + ": " + body);
-    const data = JSON.parse(body); const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    return JSON.parse(text.replace(/```json|```/g, "").trim());
-  }
-  throw new Error("Gemini no disponible tras " + MAX_INTENTOS + " intentos. " + lastError);
-}
-
-function _tipoIndicadorTexto(tipo) {
-  if (tipo === "flecha_recta") return "una flecha recta";
-  if (tipo === "flecha_rotacional") return "una flecha en arco (rotacional)";
-  if (tipo === "flecha_desde_palo") return "una flecha que sale del palo de golf";
-  if (tipo === "linea_referencia") return "una línea de referencia";
-  if (tipo === "circulo") return "un círculo";
-  return "una flecha o círculo";
-}
-
-// Arma la descripción de 1 o 2 marcas (ver _direccionVisualSwing) en el color dado, para pegar
-// en el prompt de imagen. "color" es "roja"/"verde" así queda gramaticalmente prolijo en español.
-function _describirMarcas(marcas, color) {
-  if (!marcas || !marcas.length) return "sin marcas adicionales";
-  return marcas.map(m => _tipoIndicadorTexto(m.tipo) + " " + color + " sobre \"" + (m.zona || "") + "\"" + (m.detalle ? " (" + m.detalle + ")" : "")).join(", y ");
-}
-
-// Prompt de edición: usa la imagen base (subida a mano a Drive, ver _buscarImagenBaseSwing) como
-// referencia adjunta, y el spec de _direccionVisualSwing (ya masticado: qué exagerar, qué marcar)
-// en vez del análisis crudo — así el modelo de imagen solo tiene que EJECUTAR, no interpretar
-// coaching + lateralidad + estilo a la vez (eso fue lo que le hizo perder fidelidad a la pose de
-// referencia, ver sesión 2026-08-13).
-function _construirPromptImagenIlustrativa(a, d) {
-  return "Adjunto: imagen de referencia con el golfista en la pose correcta de la fase \"" + (a.fase || "stance") + "\" del swing, ángulo " + _anguloDescIlustrativo(a.angulo) + ".\n\n"
-    + "REGLAS FIJAS — idénticas en los dos paneles, no se tocan:\n"
-    + "- Personaje: misma cara, mismo pelo/barba, misma ropa, misma gorra que la imagen de referencia.\n"
-    + "- Estilo de ilustración: mismo estilo (geométrico, técnico, plano) que la imagen de referencia.\n"
-    + "- Cámara: mismo ángulo, mismo zoom, mismo encuadre que la imagen de referencia — la cámara está fija, NO cambia entre paneles.\n"
-    + "- Fondo: crema (#F8F6E9) en los dos paneles.\n"
-    + "- Texto: PROHIBIDO cualquier texto, letra, número o palabra en la imagen — ni etiquetas, ni marcas de agua, ni nombres. Solo dibujo e iconografía.\n\n"
-    + "PANEL DERECHO (borde verde menta) — versión CORRECTA:\n"
-    + "- La imagen de referencia TAL CUAL, sin ningún cambio de postura.\n"
-    + "- Marcá con " + _describirMarcas(d.marcas, "verde") + ".\n"
-    + "- Ícono ✅ chico en una esquina (sin texto).\n\n"
-    + "PANEL IZQUIERDO (borde rosado) — versión INCORRECTA:\n"
-    + "- Partiendo de la MISMA pose de referencia y la MISMA cámara, modificá la postura del cuerpo, la posición del palo, la cabeza y/o los pies (según corresponda) para exagerar esto: " + (d.que_exagerar || "") + " — tiene que verse claramente distinto al panel derecho, no es la misma postura calcada.\n"
-    + "- No toques el personaje, el estilo ni el ángulo de cámara — solo la pose del jugador cambia.\n"
-    + "- Marcá con " + _describirMarcas(d.marcas, "roja") + ".\n"
-    + "- Ícono ❌ chico en una esquina (sin texto).\n\n"
-    + "Aspecto trabajado: " + (a.area || "") + ". Formato cuadrado 1:1, iluminación uniforme, bordes nítidos, apto para WhatsApp.";
-}
-
-// Mapea el valor de "fase" que devuelve el análisis (_analizarSwingConGemini) al texto que
-// aparece en el nombre de los archivos subidos a mano a Drive (criterio del usuario, no 1 a 1
-// con los nombres internos: "takeaway" se subió como "takeover" y "backswing" como "backswing tope").
-function _faseATextoArchivoBase(fase) {
-  const mapa = { stance:"stance", takeaway:"takeover", backswing:"backswing tope", downswing:"downswing", impacto:"impacto", follow_through:"follow through", finish:"finish" };
-  return mapa[fase] || fase;
-}
-
-// Busca en la carpeta de Drive "Golfito_ImagenesBase" el archivo llamado "<Angulo> - <fase>"
-// (cualquier extensión, mayúsculas/acentos no importan) — las imágenes base las sube a mano el
-// usuario a esa carpeta, con ese criterio de nombre (ej: "Frontal - stance", "Perfil - impacto").
-function _buscarImagenBaseSwing(angulo, fase) {
-  const anguloNombre = angulo === "frontal" ? "Frontal" : angulo === "perfil" ? "Perfil" : "";
-  if (!anguloNombre) throw new Error("Angulo invalido para buscar imagen base: '" + angulo + "'");
-  const nombreEsperado = anguloNombre + " - " + _faseATextoArchivoBase(fase);
-  const claveNormalizada = _normalizeText(nombreEsperado);
-  const folders = DriveApp.getFoldersByName("Golfito_ImagenesBase");
-  if (!folders.hasNext()) throw new Error("No existe la carpeta 'Golfito_ImagenesBase' en Drive");
-  const files = folders.next().getFiles();
-  while (files.hasNext()) {
-    const file = files.next();
-    const nombreSinExt = file.getName().replace(/\.[^.]+$/, "");
-    if (_normalizeText(nombreSinExt) === claveNormalizada) return file;
-  }
-  throw new Error("No hay imagen base subida para '" + nombreEsperado + "' en la carpeta Golfito_ImagenesBase (nombre de archivo esperado, cualquier extensión).");
-}
-
-// Pega el isotipo real de Golfito (LOGO_ISOTIPO_B64, el mismo que usan los PDFs de plan) arriba a
-// la derecha, vía la Cloud Function — no se lo pedimos a la IA para que la marca salga siempre
-// idéntica y nítida, sin depender de que el modelo la dibuje bien.
-function _agregarLogoAImagen(imageBase64) {
-  const props = PropertiesService.getScriptProperties();
-  const CLOUD_FUNCTION_URL = props.getProperty("IMG_CLOUD_FUNCTION_URL");
-  const CLOUD_FUNCTION_SECRET = props.getProperty("IMG_CLOUD_FUNCTION_SECRET");
-  if (!CLOUD_FUNCTION_URL || !CLOUD_FUNCTION_SECRET) throw new Error("Falta configurar IMG_CLOUD_FUNCTION_URL / IMG_CLOUD_FUNCTION_SECRET en Script Properties");
-  const response = UrlFetchApp.fetch(CLOUD_FUNCTION_URL, {
-    method: "POST", headers: { "Content-Type": "application/json", "X-Auth-Secret": CLOUD_FUNCTION_SECRET }, muteHttpExceptions: true, deadline: 60,
-    payload: JSON.stringify({ accion: "pegar_logo", image_base64: imageBase64, logo_base64: LOGO_ISOTIPO_B64 })
-  });
-  const statusCode = response.getResponseCode();
-  const data = JSON.parse(response.getContentText());
-  if (statusCode !== 200 || !data.ok) throw new Error("Cloud Function (logo) error: " + (data.error || response.getContentText()));
-  return data.image_base64;
 }
 
 // Extrae el fileId de un link de Drive ("https://drive.google.com/file/d/XXXX/view...") o lo usa
@@ -2093,10 +1856,10 @@ function _notificarGapBanco(from, analisis, codigo, motivo) {
 }
 
 // Banco de errores curado: clasifica el error contra el Sheet BancoErrores y manda la imagen ya
-// armada (Drive) que corresponda a esa categoría + ángulo — reemplaza el pipeline de generación
-// por IA (_enviarImagenIlustrativaSwing, más abajo) que quedó inconsistente en calidad (ver
-// sesión 2026-08-13). Si no hay match o la categoría todavía no tiene imagen, no manda nada al
-// alumno (ya recibió el análisis en texto) pero avisa por mail para ir completando el banco.
+// armada (Drive) que corresponda a esa categoría + ángulo. Las imágenes se cargan a mano (ver
+// columnas imagen_frontal/imagen_perfil del Sheet) — no hay generación automática por IA. Si no
+// hay match o la categoría todavía no tiene imagen, no manda nada al alumno (ya recibió el
+// análisis en texto) pero avisa por mail para ir completando el banco.
 function _enviarImagenBancoErrores(from, analisis) {
   try {
     const codigo = _clasificarErrorBanco(analisis);
@@ -2118,51 +1881,6 @@ function _enviarImagenBancoErrores(from, analisis) {
     _notificarGapBanco(from, analisis, codigo, "sin_match"); // Gemini devolvió un código que no está en el sheet
   } catch (err) {
     Logger.log("Error _enviarImagenBancoErrores (no bloqueante): " + err);
-  }
-}
-
-// A PARTIR DE ACÁ: pipeline de generación por IA (análisis -> dirección visual -> imagen). Quedó
-// desconectado del flujo real (ver _enviarImagenBancoErrores arriba) porque la calidad no fue
-// consistente, pero sigue funcional para generar BORRADORES a mano (via _testImagenIlustrativaSwing
-// / _testPromptsIlustrativa) que después se curan y suben como banco definitivo.
-function _enviarImagenIlustrativaSwing(from, analisis) {
-  try {
-    const baseBlob = _buscarImagenBaseSwing(analisis.angulo, analisis.fase).getBlob();
-    const imagenBase = { base64: Utilities.base64Encode(baseBlob.getBytes()), mimeType: baseBlob.getContentType() };
-    const direccion = _direccionVisualSwing(analisis);
-    Logger.log("Direccion visual: " + JSON.stringify(direccion));
-    const prompt = _construirPromptImagenIlustrativa(analisis, direccion);
-    const img = _generarImagenIlustrativaSwing(prompt, imagenBase);
-    Logger.log("Imagen ilustrativa generada: " + img.mimeType + ", " + img.base64.length + " chars base64");
-    let imagenFinal = img.base64;
-    try {
-      imagenFinal = _agregarLogoAImagen(img.base64);
-    } catch (errLogo) {
-      Logger.log("Error agregando logo (no bloqueante, se manda sin logo): " + errLogo);
-    }
-    _guardarImagenIlustrativaGenerada(from, analisis, direccion, imagenFinal);
-    _enviarImagenWhatsApp(from, imagenFinal, "📸 Así se ve tu error y cómo corregirlo");
-  } catch (err) {
-    Logger.log("Error _enviarImagenIlustrativaSwing (no bloqueante): " + err);
-  }
-}
-
-// Guarda cada imagen generada en Drive (carpeta "Golfito_ImagenesGeneradas") y registra una fila
-// en la hoja "ImagenesIlustrativas" (fecha, teléfono, análisis, dirección visual, link) — para
-// poder repasar desde el Sheet qué se le mandó a cada alumno sin ir a buscarlo en WhatsApp.
-function _guardarImagenIlustrativaGenerada(telefono, analisis, direccion, imageBase64) {
-  try {
-    const NOMBRE_CARPETA = "Golfito_ImagenesGeneradas";
-    const folders = DriveApp.getFoldersByName(NOMBRE_CARPETA);
-    const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(NOMBRE_CARPETA);
-    const blob = Utilities.newBlob(Utilities.base64Decode(imageBase64), "image/png", "swing_" + telefono + "_" + new Date().getTime() + ".png");
-    const file = folder.createFile(blob);
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName("ImagenesIlustrativas");
-    if (!sheet) { sheet = ss.insertSheet("ImagenesIlustrativas"); sheet.appendRow(["fecha", "whatsapp", "angulo", "fase", "error_principal", "direccion_visual", "imagen"]); }
-    sheet.appendRow([new Date(), telefono, analisis.angulo, analisis.fase, analisis.error_principal, JSON.stringify(direccion), file.getUrl()]);
-  } catch (err) {
-    Logger.log("Error guardando imagen ilustrativa generada (no bloqueante): " + err);
   }
 }
 
@@ -2554,56 +2272,6 @@ function _testEnvioMeta() { _enviarMensajeWhatsApp("56975466327","Test desde App
 function _listarModelosGemini() { const res=UrlFetchApp.fetch("https://generativelanguage.googleapis.com/v1beta/models?key="+GEMINI_API_KEY,{muteHttpExceptions:true}); const data=JSON.parse(res.getContentText()); Logger.log(data.models?.map(m=>m.name).join("\n")||"Sin modelos"); }
 function _testLogDirecto() { const sheet=SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog"); Logger.log("Sheet: "+(sheet?"SI":"NO")); sheet.appendRow([new Date(),"test123","saliente","texto","prueba directa"]); Logger.log("OK"); }
 function _testGeminiV7() { const resultado=_analizarSwingConGemini("10EFfw5W9gInxH4tDdPugTNVp2-Fnyztv",""); Logger.log(JSON.stringify(resultado)); }
-// Prueba el pipeline completo de la imagen comparativa (Gemini coords + Cloud Function + envío)
-// sin pasar por WhatsApp real: seleccioná esta función en el desplegable del editor y "Ejecutar",
-// después de configurar IMG_CLOUD_FUNCTION_URL / IMG_CLOUD_FUNCTION_SECRET. Mismo driveFileId de
-// prueba que usa _testGeminiV7 y mismo teléfono que usa _testEnvioMeta — cambialos acá si hace falta.
-function _testImagenComparativaSwing() {
-  const driveFileId = "1HmPT990xi8gzUGW5AdoyicWPa6w-h8gk";
-  const telefonoDestino = "56975466327";
-  const resultado = _analizarSwingConGemini(driveFileId, "");
-  Logger.log("Análisis: " + JSON.stringify(resultado));
-  if (!resultado.ok) return;
-  _enviarImagenComparativaSwing(telefonoDestino, driveFileId, resultado.fileUri, "Error principal: " + resultado.analisis.error_principal + ". Detalles: " + resultado.analisis.detalles);
-  Logger.log("Listo — revisá el WhatsApp de " + telefonoDestino + " y los logs de arriba por si _enviarImagenComparativaSwing tiró error (es no-bloqueante, no lanza excepción).");
-}
-// Prueba el enfoque alternativo (ilustración generada por Gemini, sin Cloud Function ni video
-// real) — mismo driveFileId/teléfono que _testImagenComparativaSwing, para comparar ambos enfoques
-// con el mismo análisis de base.
-function _testImagenIlustrativaSwing() {
-  const driveFileId = "1HmPT990xi8gzUGW5AdoyicWPa6w-h8gk";
-  const telefonoDestino = "56975466327";
-  const resultado = _analizarSwingConGemini(driveFileId, "");
-  Logger.log("Análisis: " + JSON.stringify(resultado));
-  if (!resultado.ok) return;
-  _enviarImagenIlustrativaSwing(telefonoDestino, resultado.analisis);
-  Logger.log("Listo — revisá el WhatsApp de " + telefonoDestino + " y los logs de arriba por si _enviarImagenIlustrativaSwing tiró error (es no-bloqueante, no lanza excepción).");
-}
-// Corre el análisis real N veces (repartido entre los 2 videos de prueba que ya usan
-// _testGeminiV7/_testImagenComparativaSwing) y loguea, para cada uno, el análisis crudo y el
-// prompt de imagen ya resuelto (listo para pegar en ChatGPT o donde se quiera comparar) — NO
-// genera la imagen, así se juntan varios casos rápido y barato antes de gastar tiempo/costo
-// generándolas. Ver Ver > Registros después de ejecutar para copiar los prompts.
-function _testPromptsIlustrativa(n) {
-  const videos = [
-    "1HmPT990xi8gzUGW5AdoyicWPa6w-h8gk",
-    "1BaqKGV0OGEuP8y4ZWmdbH47I8KATrE47",
-    "1zv1Ow-Noa_P6ffEX4ivN2bCxF857_E-J",
-    "16UB6J67qs3VPS4tbs_z6W8NCL6qB06TL",
-    "1J7GUSW56CoNzNwo3g6LtH4TcIarR_tqB",
-    "1AlxsnyL4ukMExws5lGuRdMCeGHDtvcVV"
-  ];
-  const veces = n || videos.length;
-  for (let i = 0; i < veces; i++) {
-    const driveFileId = videos[i % videos.length];
-    const resultado = _analizarSwingConGemini(driveFileId, "");
-    if (!resultado.ok) { Logger.log("Caso " + (i + 1) + " (video " + driveFileId + ") — error análisis: " + resultado.error); continue; }
-    let direccion;
-    try { direccion = _direccionVisualSwing(resultado.analisis); } catch (errDir) { Logger.log("Caso " + (i + 1) + " (video " + driveFileId + ") — error dirección visual: " + errDir); continue; }
-    const prompt = _construirPromptImagenIlustrativa(resultado.analisis, direccion);
-    Logger.log("=== Caso " + (i + 1) + " — video " + driveFileId + " ===\nAnálisis: " + JSON.stringify(resultado.analisis) + "\n\nDirección visual: " + JSON.stringify(direccion) + "\n\nPrompt:\n" + prompt + "\n");
-  }
-}
 
 // Setup de una sola vez para el banco de errores curado: crea el Sheet "BancoErrores" con las
 // 14 categorías precargadas (imagen_frontal/imagen_perfil en "pendiente" hasta que se suba cada
@@ -2660,65 +2328,6 @@ function _setupBancoErrores() {
   }
 }
 
-// Genera borradores automáticos del banco de errores: reusa el pipeline de IA ya armado (imagen
-// base de Golfito_ImagenesBase por fase+ángulo -> _direccionVisualSwing -> imagen), usando
-// nombre/descripcion de cada categoría del Sheet como si fuera el "error" de un análisis real.
-// No pisa imagen_frontal/imagen_perfil (lo que de verdad se manda a alumnos) — escribe en columnas
-// nuevas borrador_frontal/borrador_perfil para que se revisen antes de promoverlas copiando el
-// link a la columna real. Corre con presupuesto de tiempo (Apps Script corta ejecuciones largas):
-// si queda categorías sin generar, volvé a correr la función y sigue donde quedó (salta lo que ya
-// tiene borrador o imagen real cargada).
-function _generarBorradoresBancoErrores() {
-  const LIMITE_MS = 4.5 * 60 * 1000;
-  const inicio = new Date().getTime();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BANCO_ERRORES_SHEET);
-  if (!sheet) { Logger.log("No existe el Sheet '" + BANCO_ERRORES_SHEET + "' — corré _setupBancoErrores primero."); return; }
-  let headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => _safeString(h));
-  let colBorradorFrontal = headers.indexOf("borrador_frontal");
-  let colBorradorPerfil = headers.indexOf("borrador_perfil");
-  if (colBorradorFrontal === -1) { colBorradorFrontal = headers.length; sheet.getRange(1, colBorradorFrontal + 1).setValue("borrador_frontal"); headers.push("borrador_frontal"); }
-  if (colBorradorPerfil === -1) { colBorradorPerfil = headers.length; sheet.getRange(1, colBorradorPerfil + 1).setValue("borrador_perfil"); headers.push("borrador_perfil"); }
-  const folders = DriveApp.getFoldersByName("Golfito_BancoErrores_Borradores");
-  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder("Golfito_BancoErrores_Borradores");
-  const data = sheet.getDataRange().getValues();
-  let generados = 0;
-  for (let i = 1; i < data.length; i++) {
-    if (new Date().getTime() - inicio > LIMITE_MS) { Logger.log("Presupuesto de tiempo agotado — volvé a correr la función para seguir."); break; }
-    const codigo = _safeString(data[i][0]);
-    if (!codigo || codigo === "otro") continue;
-    const nombre = _safeString(data[i][1]);
-    const fase = _safeString(data[i][2]);
-    const descripcion = _safeString(data[i][3]);
-    const imagenFrontalActual = _safeString(data[i][4]).toLowerCase();
-    const imagenPerfilActual = _safeString(data[i][5]).toLowerCase();
-    const borradorFrontalActual = _safeString(data[i][colBorradorFrontal]);
-    const borradorPerfilActual = _safeString(data[i][colBorradorPerfil]);
-    const pendientes = [];
-    if ((!imagenFrontalActual || imagenFrontalActual === "pendiente") && !borradorFrontalActual) pendientes.push({ angulo: "frontal", col: colBorradorFrontal });
-    if ((!imagenPerfilActual || imagenPerfilActual === "pendiente") && !borradorPerfilActual) pendientes.push({ angulo: "perfil", col: colBorradorPerfil });
-    for (const item of pendientes) {
-      if (new Date().getTime() - inicio > LIMITE_MS) break;
-      try {
-        const baseBlob = _buscarImagenBaseSwing(item.angulo, fase).getBlob();
-        const imagenBase = { base64: Utilities.base64Encode(baseBlob.getBytes()), mimeType: baseBlob.getContentType() };
-        const analisisFalso = { angulo: item.angulo, fase: fase, lado_jugador: "centro", error_principal: nombre, detalles: descripcion, recomendacion: "" };
-        const direccion = _direccionVisualSwing(analisisFalso);
-        const prompt = _construirPromptImagenIlustrativa(analisisFalso, direccion);
-        const img = _generarImagenIlustrativaSwing(prompt, imagenBase);
-        let imagenFinal = img.base64;
-        try { imagenFinal = _agregarLogoAImagen(img.base64); } catch (errLogo) { /* no bloqueante, sin logo */ }
-        const blob = Utilities.newBlob(Utilities.base64Decode(imagenFinal), "image/png", codigo + "_" + item.angulo + "_borrador.png");
-        const file = folder.createFile(blob);
-        sheet.getRange(i + 1, item.col + 1).setValue(file.getUrl());
-        generados++;
-        Logger.log("Borrador generado: " + codigo + " (" + item.angulo + ")");
-      } catch (err) {
-        Logger.log("Error generando borrador " + codigo + " (" + item.angulo + "): " + err);
-      }
-    }
-  }
-  Logger.log("Listo por ahora. Borradores generados en esta corrida: " + generados + ". Si quedó pendiente, volvé a correr la función.");
-}
 // Temporal: probar el template del recordatorio semanal contra un solo número
 // antes de correr enviarRecordatorioSemanal (que le manda a todos los inactivos).
 // Se puede borrar una vez confirmado que el template llega bien.
