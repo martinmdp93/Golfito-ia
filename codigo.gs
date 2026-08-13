@@ -2659,6 +2659,66 @@ function _setupBancoErrores() {
     Logger.log("Carpeta Drive '" + NOMBRE_CARPETA + "' creada.");
   }
 }
+
+// Genera borradores automáticos del banco de errores: reusa el pipeline de IA ya armado (imagen
+// base de Golfito_ImagenesBase por fase+ángulo -> _direccionVisualSwing -> imagen), usando
+// nombre/descripcion de cada categoría del Sheet como si fuera el "error" de un análisis real.
+// No pisa imagen_frontal/imagen_perfil (lo que de verdad se manda a alumnos) — escribe en columnas
+// nuevas borrador_frontal/borrador_perfil para que se revisen antes de promoverlas copiando el
+// link a la columna real. Corre con presupuesto de tiempo (Apps Script corta ejecuciones largas):
+// si queda categorías sin generar, volvé a correr la función y sigue donde quedó (salta lo que ya
+// tiene borrador o imagen real cargada).
+function _generarBorradoresBancoErrores() {
+  const LIMITE_MS = 4.5 * 60 * 1000;
+  const inicio = new Date().getTime();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BANCO_ERRORES_SHEET);
+  if (!sheet) { Logger.log("No existe el Sheet '" + BANCO_ERRORES_SHEET + "' — corré _setupBancoErrores primero."); return; }
+  let headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => _safeString(h));
+  let colBorradorFrontal = headers.indexOf("borrador_frontal");
+  let colBorradorPerfil = headers.indexOf("borrador_perfil");
+  if (colBorradorFrontal === -1) { colBorradorFrontal = headers.length; sheet.getRange(1, colBorradorFrontal + 1).setValue("borrador_frontal"); headers.push("borrador_frontal"); }
+  if (colBorradorPerfil === -1) { colBorradorPerfil = headers.length; sheet.getRange(1, colBorradorPerfil + 1).setValue("borrador_perfil"); headers.push("borrador_perfil"); }
+  const folders = DriveApp.getFoldersByName("Golfito_BancoErrores");
+  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder("Golfito_BancoErrores");
+  const data = sheet.getDataRange().getValues();
+  let generados = 0;
+  for (let i = 1; i < data.length; i++) {
+    if (new Date().getTime() - inicio > LIMITE_MS) { Logger.log("Presupuesto de tiempo agotado — volvé a correr la función para seguir."); break; }
+    const codigo = _safeString(data[i][0]);
+    if (!codigo || codigo === "otro") continue;
+    const nombre = _safeString(data[i][1]);
+    const fase = _safeString(data[i][2]);
+    const descripcion = _safeString(data[i][3]);
+    const imagenFrontalActual = _safeString(data[i][4]).toLowerCase();
+    const imagenPerfilActual = _safeString(data[i][5]).toLowerCase();
+    const borradorFrontalActual = _safeString(data[i][colBorradorFrontal]);
+    const borradorPerfilActual = _safeString(data[i][colBorradorPerfil]);
+    const pendientes = [];
+    if ((!imagenFrontalActual || imagenFrontalActual === "pendiente") && !borradorFrontalActual) pendientes.push({ angulo: "frontal", col: colBorradorFrontal });
+    if ((!imagenPerfilActual || imagenPerfilActual === "pendiente") && !borradorPerfilActual) pendientes.push({ angulo: "perfil", col: colBorradorPerfil });
+    for (const item of pendientes) {
+      if (new Date().getTime() - inicio > LIMITE_MS) break;
+      try {
+        const baseBlob = _buscarImagenBaseSwing(item.angulo, fase).getBlob();
+        const imagenBase = { base64: Utilities.base64Encode(baseBlob.getBytes()), mimeType: baseBlob.getContentType() };
+        const analisisFalso = { angulo: item.angulo, fase: fase, lado_jugador: "centro", error_principal: nombre, detalles: descripcion, recomendacion: "" };
+        const direccion = _direccionVisualSwing(analisisFalso);
+        const prompt = _construirPromptImagenIlustrativa(analisisFalso, direccion);
+        const img = _generarImagenIlustrativaSwing(prompt, imagenBase);
+        let imagenFinal = img.base64;
+        try { imagenFinal = _agregarLogoAImagen(img.base64); } catch (errLogo) { /* no bloqueante, sin logo */ }
+        const blob = Utilities.newBlob(Utilities.base64Decode(imagenFinal), "image/png", codigo + "_" + item.angulo + "_borrador.png");
+        const file = folder.createFile(blob);
+        sheet.getRange(i + 1, item.col + 1).setValue(file.getUrl());
+        generados++;
+        Logger.log("Borrador generado: " + codigo + " (" + item.angulo + ")");
+      } catch (err) {
+        Logger.log("Error generando borrador " + codigo + " (" + item.angulo + "): " + err);
+      }
+    }
+  }
+  Logger.log("Listo por ahora. Borradores generados en esta corrida: " + generados + ". Si quedó pendiente, volvé a correr la función.");
+}
 // Temporal: probar el template del recordatorio semanal contra un solo número
 // antes de correr enviarRecordatorioSemanal (que le manda a todos los inactivos).
 // Se puede borrar una vez confirmado que el template llega bien.
