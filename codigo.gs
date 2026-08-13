@@ -1032,9 +1032,12 @@ function _procesarAnalisisVideo(from, conv, esSegundoVideo) {
     const a = resultado.analisis;
     const titulo = esSegundoVideo ? "\ud83e\udd16 *An\u00e1lisis complementario (" + a.angulo + ")*" : "\ud83e\udd16 *An\u00e1lisis de tu swing (" + a.angulo + ")*";
     _enviarMensajeWhatsApp(from, titulo + "\n\n\ud83c\udfaf *Error principal:* " + a.error_principal + "\n\ud83d\udcca *Severidad:* " + a.severidad + "\n\n\ud83d\udcdd *Detalles:*\n" + a.detalles + "\n\n\ud83d\udca1 *Recomendaci\u00f3n:*\n" + a.recomendacion + "\n\nCuando vuelvas a la pr\u00e1ctica, mandame un video nuevo as\u00ed llevamos tu evoluci\u00f3n \ud83d\udcaa");
-    if (a.angulo === "perfil" || a.angulo === "frontal") {
-      _enviarImagenComparativaSwing(from, match[1], resultado.fileUri, "Error principal: " + a.error_principal + ". Detalles: " + a.detalles);
-    }
+    // Desactivado hasta terminar de afinar la precision del prompt de coordenadas (WIP) -
+    // no mandar automaticamente a clientes reales todavia. Sigue disponible para probar
+    // a mano via _testImagenComparativaSwing.
+    // if (a.angulo === "perfil" || a.angulo === "frontal") {
+    //   _enviarImagenComparativaSwing(from, match[1], resultado.fileUri, "Error principal: " + a.error_principal + ". Detalles: " + a.detalles);
+    // }
     const nombre = conv.nombre || _obtenerNombreLead(from);
     if (!esSegundoVideo) {
       _enviarMenuPrincipal(from, nombre);
