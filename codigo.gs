@@ -29,7 +29,7 @@ const COSTO_ANALISIS = 3500;
 const COSTO_PLAN = 15000;
 const SALDO_INICIAL_LEAD = 3500;
 
-const RECORDATORIO_TEMPLATE_NAME = "recordatorio_practica_semanal_2";
+const RECORDATORIO_TEMPLATE_NAME = "recordatorio_practica_semanal_3";
 const RECORDATORIO_TEMPLATE_LANG = "es_AR";
 const RECORDATORIO_DIAS_INACTIVIDAD = 7;
 
@@ -320,7 +320,7 @@ function _enviarMenuPrincipal(from, nombre) {
     "3\ufe0f\u20e3 *An\u00e1lisis de video* \u2014 $ 3.500\n" +
     "4\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000\n" +
     "5\ufe0f\u20e3 *Actualizar mis datos*\n" +
-    "6\ufe0f\u20e3 *Otras consultas*\n" +
+    "6\ufe0f\u20e3 *Consultas de golf*\n" +
     "7\ufe0f\u20e3 *Cargar saldo*"
   );
 }
@@ -1157,7 +1157,7 @@ function _guardarConsulta(from, nombre, texto) {
   let sheet = ss.getSheetByName(CONSULTAS_SHEET);
   if (!sheet) { sheet = ss.insertSheet(CONSULTAS_SHEET); sheet.appendRow(["timestamp","whatsapp","nombre","consulta","respondida"]); }
   sheet.appendRow([new Date(), from, nombre, texto, "no"]);
-  try { GmailApp.sendEmail(Session.getActiveUser().getEmail(), "\ud83d\udcac Nueva consulta de " + nombre, "WhatsApp: " + from + "\nNombre: " + nombre + "\n\nConsulta:\n" + texto); } catch(err) { Logger.log("Error email consulta: " + err); }
+  try { GmailApp.sendEmail(Session.getEffectiveUser().getEmail(), "\ud83d\udcac Nueva consulta de " + nombre, "WhatsApp: " + from + "\nNombre: " + nombre + "\n\nConsulta:\n" + texto); } catch(err) { Logger.log("Error email consulta: " + err); }
 }
 
 function _actualizarHandicapLead(from, handicap) {
@@ -1355,7 +1355,7 @@ function procesarSesionesPendientes() {
 
 function _notificarNuevoPlan(nombre, whatsapp, perfil, videoUrl, comentariosAlumno) {
   try {
-    const email = Session.getActiveUser().getEmail();
+    const email = Session.getEffectiveUser().getEmail();
     GmailApp.sendEmail(email, "\u26f3 Nuevo plan solicitado \u2014 " + nombre,
       "\ud83d\udc64 Nombre: " + nombre + "\n\ud83d\udcf1 WhatsApp: " + whatsapp + "\n\ud83c\udfcc\ufe0f Nivel: " + perfil.nivel + "\n\ud83c\udfaf Aspecto: " + perfil.aspecto + "\n\ud83d\udcac Comentarios: " + (comentariosAlumno||"No indic\u00f3") + "\n\ud83c\udfa5 Video: " + (videoUrl||"No envi\u00f3 video") + "\n\n\ud83d\udcac WhatsApp: https://wa.me/" + whatsapp + "\n\nAbr\u00ed el panel de Golfito para generar y enviar el plan.");
   } catch(err) { Logger.log("Error email: " + err); }
@@ -1842,7 +1842,7 @@ function _clasificarErrorBanco(analisis) {
 // corre el script) — es la señal para saber qué imágenes priorizar armar.
 function _notificarGapBanco(from, analisis, codigo, motivo) {
   try {
-    const email = Session.getActiveUser().getEmail();
+    const email = Session.getEffectiveUser().getEmail();
     const nombre = _obtenerNombreLead(from) || from;
     const asuntoMotivo = motivo === "sin_match" ? "sin categoría" : "falta imagen";
     const cuerpoMotivo = motivo === "sin_match"
