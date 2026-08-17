@@ -1443,11 +1443,13 @@ function obtenerConversacionesActivas(token) {
   for (let i=1;i<convsData.length;i++) {
     const wa=_safeString(convsData[i][0]); if (!wa) continue;
     let estado={}; try { estado=JSON.parse(_safeString(convsData[i][1]))||{}; } catch(e){}
+    const tsRaw = convsData[i][2] ? new Date(convsData[i][2]).getTime() : 0;
     const ua = convsData[i][2] ? Utilities.formatDate(new Date(convsData[i][2]),Session.getScriptTimeZone(),"dd/MM/yyyy HH:mm") : "—";
     const li = leadsMap[wa]||{nombre:""};
-    conversaciones.push({ whatsapp:wa, nombre:li.nombre||estado.nombre||wa, paso:estado.paso||"—", ultimaActualizacion:ua });
+    conversaciones.push({ whatsapp:wa, nombre:li.nombre||estado.nombre||wa, paso:estado.paso||"—", ultimaActualizacion:ua, _ts:tsRaw });
   }
-  conversaciones.sort((a,b) => b.ultimaActualizacion.localeCompare(a.ultimaActualizacion));
+  conversaciones.sort((a,b) => b._ts - a._ts);
+  conversaciones.forEach(c => delete c._ts);
   return { conversaciones };
 }
 
