@@ -501,7 +501,7 @@ function _procesarMensajeEntrante(from, text) {
           _guardarConversacion(from, { ...conv, paso: "esperando_aspecto_menu", ejvsplan: "1", nombre, handicap });
         }
       } else if (v === "2") {
-        _enviarMensajeWhatsApp(from, "\uD83D\uDCCA *\u00cdndice Golfito: califica tu swing*\n\nEnviam\u00e9 un video de tu swing _(menos de 7 segundos)_ y evaluo tus 7 dimensiones t\u00e9cnicas con un score del 1 al 100 \uD83C\uDFCC\uFE0F");
+        _enviarMensajeWhatsApp(from, "\uD83D\uDCCA *\u00cdndice Golfito: califica tu swing*\n\nEnviam\u00e9 un video de tu swing *de perfil* _(c\u00E1mara al costado, viendo tu swing de lado, menos de 7 segundos)_ y evaluo tus 7 dimensiones t\u00e9cnicas con un score del 1 al 100 \uD83C\uDFCC\uFE0F");
         _guardarConversacion(from, { ...conv, paso: "esperando_video_indice", ejvsplan: "indice", nombre, video_url1: "", intentos_video: 0 });
       } else if (v === "3") {
         if (MODO_TEST_ANALISIS || _obtenerSaldoLead(from) >= COSTO_ANALISIS) {
@@ -2108,6 +2108,14 @@ function _procesarIndiceGolfito(from, driveUrl, conv) {
     if (!match) throw new Error("No se pudo obtener el ID del video");
     const resultado = _analizarIndiceConGemini(match[1]);
     if (!resultado.ok) throw new Error(resultado.error);
+    // El Índice solo es comparable entre videos filmados de perfil (frontal/otro ángulo
+    // da un score muy distinto para el mismo swing). Si no es de perfil, pedimos que
+    // reenvíe una vez; si insiste, seguimos igual (fail-open, como el resto del flujo).
+    if (resultado.angulo !== "perfil" && (conv.intentos_angulo_indice || 0) < 1) {
+      _guardarConversacion(from, { ...conv, paso: "esperando_video_indice", intentos_angulo_indice: (conv.intentos_angulo_indice || 0) + 1 });
+      _enviarMensajeWhatsApp(from, "Para que el Índice Golfito sea preciso necesito un video *de perfil* 📐 _(cámara al costado, viendo tu swing de lado, menos de 7 segundos)_.\n\nMandame ese y calculo tu índice ⛳");
+      return;
+    }
     const s = resultado.scores;
     const scoreTotal = Math.round((s.grip + s.postura + s.backswing + s.downswing + s.impacto + s.follow_through + s.transferencia_peso) / 7 * 25);
     // Guardar en sheet
@@ -2145,7 +2153,7 @@ function _procesarIndiceGolfito(from, driveUrl, conv) {
 function _analizarIndiceConGemini(driveFileId) {
   try {
     const fileUri = _subirVideoAGemini(driveFileId);
-    const prompt = "Sos un coach profesional de golf evaluando el swing de un jugador amateur. Tu tarea es evaluar 7 dimensiones técnicas del swing con un score del 1 al 4 cada una (1=muy deficiente, 2=deficiente, 3=aceptable, 4=bueno).\n\nDimensiones a evaluar:\n1. grip — posición y presión de las manos en el palo\n2. postura — alineación, flexión de rodillas, inclinación de cadera\n3. backswing — plano, rotación de hombros, extensión de brazos\n4. downswing — secuencia de bajada, plano de ataque\n5. impacto — posición en el momento de contacto\n6. follow_through — extensión post-impacto\n7. transferencia_peso — desplazamiento del peso entre backswing e impacto\n\nSi el ángulo de cámara no permite evaluar alguna dimensión con certeza, asigná 2 como valor neutro.\n\nRespondé EXCLUSIVAMENTE con JSON válido sin texto adicional ni backticks:\n{\"grip\":3,\"postura\":2,\"backswing\":3,\"downswing\":2,\"impacto\":2,\"follow_through\":3,\"transferencia_peso\":2}";
+    const prompt = "Sos un coach profesional de golf evaluando el swing de un jugador amateur.\n\nPrimero determiná el ángulo de cámara del video:\n- \"perfil\": cámara ubicada al costado del jugador, viendo el swing de lado (el ángulo estándar para evaluar plano, postura y secuencia).\n- \"frontal\": cámara de frente o de espaldas al jugador.\n- \"otro\": cualquier otro ángulo, o video donde no se distingue con claridad.\n\nLuego evaluá 7 dimensiones técnicas del swing con un score del 1 al 4 cada una (1=muy deficiente, 2=deficiente, 3=aceptable, 4=bueno). Evaluá SIEMPRE las 7 dimensiones aunque el ángulo no sea de perfil, haciendo tu mejor estimación con la información disponible.\n\nDimensiones a evaluar:\n1. grip — posición y presión de las manos en el palo\n2. postura — alineación, flexión de rodillas, inclinación de cadera\n3. backswing — plano, rotación de hombros, extensión de brazos\n4. downswing — secuencia de bajada, plano de ataque\n5. impacto — posición en el momento de contacto\n6. follow_through — extensión post-impacto\n7. transferencia_peso — desplazamiento del peso entre backswing e impacto\n\nSi el ángulo de cámara no permite evaluar alguna dimensión con certeza, asigná 2 como valor neutro.\n\nRespondé EXCLUSIVAMENTE con JSON válido sin texto adicional ni backticks:\n{\"angulo\":\"perfil\",\"grip\":3,\"postura\":2,\"backswing\":3,\"downswing\":2,\"impacto\":2,\"follow_through\":3,\"transferencia_peso\":2}";
     const MAX_INTENTOS = 5; const ESPERA_MS = [5000,10000,20000,30000,40000]; let lastError = "";
     for (let intento = 0; intento < MAX_INTENTOS; intento++) {
       if (intento > 0) Utilities.sleep(ESPERA_MS[intento-1]);
@@ -2159,7 +2167,8 @@ function _analizarIndiceConGemini(driveFileId) {
       ["grip","postura","backswing","downswing","impacto","follow_through","transferencia_peso"].forEach(k => {
         scores[k] = Math.min(4, Math.max(1, parseInt(scores[k]) || 2));
       });
-      return { ok: true, scores };
+      const angulo = _safeString(scores.angulo).toLowerCase() || "otro";
+      return { ok: true, scores, angulo };
     }
     throw new Error("Gemini no disponible tras "+MAX_INTENTOS+" intentos. "+lastError);
   } catch(err) { Logger.log("Error _analizarIndiceConGemini: "+err); return { ok: false, error: err.toString() }; }

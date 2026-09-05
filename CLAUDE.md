@@ -1,6 +1,18 @@
-# Golfito-ia
+# Golfito IA (golfito-whatsapp)
+
+> Parte de **Golfito (B2C)** dentro del ecosistema GolfitoGolf.IA — ver [`../CLAUDE.md`](../CLAUDE.md) para el contexto de negocio completo. Este es el producto en sí (no confundir con `../golfito-social/`, que es solo su marketing).
 
 Chatbot "profesor de golf" sobre WhatsApp: recibe videos de swing, los analiza con IA, da ejercicios y planes de entrenamiento personalizados, y cobra por análisis/planes vía MercadoPago. Incluye un panel web para que los profesores supervisen y respondan manualmente.
+
+> Carpeta movida desde `C:\Users\marti\Golfito-ia` el 2026-09-03 (repo git intacto, `.git` incluido). Si alguna doc vieja o algún script todavía referencia esa ruta, actualizarla al toparse con ella.
+
+## Negocio (B2C)
+
+Embudo: ejercicio gratis automatizado (lead gen, sin costo) → análisis de swing con Gemini (pago) → plan de entrenamiento personalizado (pago). Generación de ejercicios vía **GPT-4o-mini**; análisis de swing vía **Gemini 2.5-flash** (feedback cualitativo + scoring de 7 dimensiones — ver `_analizarSwingConGemini` / Índice Golfito en "Entry points" abajo). Cobros de ambos pasos pagos vía MercadoPago (ver `_crearPreferenciaPago` etc.).
+
+- **WhatsApp Business (Meta):** número `922201076`, App ID `1008146235206568`, Business Manager "Servicios Informáticos Martín Schroeder SpA". Esta misma app/Business Manager la reusa `golfito-social` para Facebook/Instagram — no crear una app nueva para nada relacionado a Golfito.
+- **Cloud Run `generar-imagen-swing`** (proyecto `golfito-prod`, `southamerica-west1`): genera las imágenes comparativas de swing (antes/después o vs. referencia) que se mandan como parte del análisis. Vive fuera de este repo (es un servicio aparte en GCP), pero es parte del flujo de análisis de swing.
+- **Deploy vía clasp (confirmado funcionando 2026-09-05):** `clasp push` sube `codigo.gs`/`appsscript.json`/`webapp.html` al proyecto de Apps Script (ya logueado como `martinmdp93@gmail.com`, ver `.clasp.json`). Ojo: el webhook de WhatsApp y de MercadoPago (`MP_WEBHOOK_URL` en `codigo.gs`) apuntan a un **deployment versionado**, no a `@HEAD` — `clasp push` por sí solo NO actualiza lo que corre en producción. Para que el cambio quede realmente live hay que correr `clasp deploy -i <deploymentId>` (ver `MP_WEBHOOK_URL` para el ID) para apuntar ese mismo deployment a la nueva versión. El problema de TLS documentado antes ya no reproduce (probablemente resuelto por una actualización de Node/clasp).
 
 ## Stack
 
