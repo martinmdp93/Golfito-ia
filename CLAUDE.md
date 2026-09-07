@@ -14,6 +14,18 @@ Embudo: ejercicio gratis automatizado (lead gen, sin costo) → análisis de swi
 - **Cloud Run `generar-imagen-swing`** (proyecto `golfito-prod`, `southamerica-west1`): genera las imágenes comparativas de swing (antes/después o vs. referencia) que se mandan como parte del análisis. Vive fuera de este repo (es un servicio aparte en GCP), pero es parte del flujo de análisis de swing.
 - **Deploy vía clasp (confirmado funcionando 2026-09-05):** `clasp push` sube `codigo.gs`/`appsscript.json`/`webapp.html` al proyecto de Apps Script (ya logueado como `martinmdp93@gmail.com`, ver `.clasp.json`). Ojo: el webhook de WhatsApp y de MercadoPago (`MP_WEBHOOK_URL` en `codigo.gs`) apuntan a un **deployment versionado**, no a `@HEAD` — `clasp push` por sí solo NO actualiza lo que corre en producción. Para que el cambio quede realmente live hay que correr `clasp deploy -i <deploymentId>` (ver `MP_WEBHOOK_URL` para el ID) para apuntar ese mismo deployment a la nueva versión. El problema de TLS documentado antes ya no reproduce (probablemente resuelto por una actualización de Node/clasp).
 
+## Flujo de deploy — pre-autorizado tras confirmación de Martín
+
+Cuando Martín confirma un cambio de código en este proyecto (ej. "dale", "sí", "deployalo", "andá"), correr **todo el pipeline sin volver a preguntar paso por paso**:
+
+1. `git add` de los archivos tocados.
+2. `git commit` con mensaje descriptivo (+ trailer de coautoría de Claude).
+3. `clasp push`.
+4. `clasp deploy -i <deploymentId>` — sacar el `deploymentId` de `MP_WEBHOOK_URL` en `codigo.gs`. **Este paso es el que realmente actualiza lo que corre en producción**; no alcanza con el push (ver bullet de arriba).
+5. `git push origin main`.
+
+Esta autorización cubre commit + push a GitHub + push/redeploy a Apps Script como una sola unidad. No hace falta re-confirmar cada uno por separado. Si el cambio toca lógica de pagos (MercadoPago) o algo que Martín no pidió explícitamente tocar, sí conviene chequear antes de correr el pipeline.
+
 ## Stack
 
 - **Backend:** Google Apps Script (`codigo.gs`, ~1900 líneas, un solo archivo). Runtime V8.
