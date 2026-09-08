@@ -7,6 +7,7 @@ const EXERCISES_SHEET = "Excercises_Gemini";
 const CONVERSATIONS_SHEET = "Conversations";
 const CONSULTAS_SHEET = "Consultas";
 const BANCO_ERRORES_SHEET = "BancoErrores";
+const BANCO_ERRORES_LOG_SHEET = "BancoErroresLog";
 
 const OPENAI_API_KEY = PropertiesService.getScriptProperties().getProperty("OPENAI_API_KEY");
 const MP_ACCESS_TOKEN = PropertiesService.getScriptProperties().getProperty("MP_ACCESS_TOKEN");
@@ -1878,11 +1879,26 @@ function _enviarImagenBancoErrores(from, analisis) {
       const blob = DriveApp.getFileById(fileId).getBlob();
       const base64 = Utilities.base64Encode(blob.getBytes());
       _enviarImagenWhatsApp(from, base64, "📸 Así se ve tu error y cómo corregirlo");
+      _logBancoErroresEnviado(from, analisis, codigo, fileId);
       return;
     }
     _notificarGapBanco(from, analisis, codigo, "sin_match"); // Gemini devolvió un código que no está en el sheet
   } catch (err) {
     Logger.log("Error _enviarImagenBancoErrores (no bloqueante): " + err);
+  }
+}
+
+// Deja trazabilidad de qué imagen del banco se le mandó a cada alumno (para que Martín pueda
+// auditar si el código/imagen tiene sentido para ese error) — no bloqueante, igual que el resto
+// de esta función: si falla el log, no debe afectar el envío ya hecho al alumno.
+function _logBancoErroresEnviado(from, analisis, codigo, fileId) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName(BANCO_ERRORES_LOG_SHEET);
+    if (!sheet) { sheet = ss.insertSheet(BANCO_ERRORES_LOG_SHEET); sheet.appendRow(["timestamp","whatsapp","codigo_error","fase","angulo","imagen_file_id"]); }
+    sheet.appendRow([new Date(), from, codigo, analisis.fase || "", analisis.angulo || "", fileId]);
+  } catch (err) {
+    Logger.log("Error _logBancoErroresEnviado (no bloqueante): " + err);
   }
 }
 
