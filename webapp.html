@@ -540,7 +540,7 @@ function showTab(tab,el){
   if(tab==='consultas'&&!consultasLoaded){consultasLoaded=true;cargarConsultas();}
 }
 function aplicarFiltros(){renderPendientes(allLeads.filter(l=>l.status==='pendiente_manual'));renderHistorial(allLeads.filter(l=>l.status!=='pendiente_manual'));}
-function tipoLabel(e){if(e==='2')return '🤖 Análisis de video';if(e==='3')return '📋 Plan personalizado';return '🎯 Ejercicio gratis';}
+function tipoLabel(e){if(e==='2')return '🤖 Análisis de swing';if(e==='3')return '📋 Plan personalizado';return '🎯 Ejercicio gratis';}
 function tipoBadge(e){if(e==='2')return '<span class="badge badge-analisis">🤖 Análisis</span>';if(e==='3')return '<span class="badge badge-plan">📋 Plan</span>';return '';}
 
 function renderPendientes(items){
