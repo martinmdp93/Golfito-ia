@@ -1224,7 +1224,7 @@ function enviarNudgePostSesion() {
     if (!esLaMasReciente) { sheet.getRange(i+1, COL.FECHA_NUDGE).setValue(ahora); continue; }
     const mensaje = ejvsplan === "1"
       ? "\u00bfC\u00f3mo te fue con el ejercicio? \ud83c\udfcc\ufe0f Eleg\u00ed la opci\u00f3n 1 (An\u00e1lisis de swing) y revisemos si mejoraste \ud83d\udcaa"
-      : "\u00bfPudiste practicar lo que te recomendamos? \ud83c\udfcc\ufe0f Eleg\u00ed la opci\u00f3n 1 (An\u00e1lisis de swing) y mandanos un video nuevo para ver si mejoraste \ud83d\udcaa\n\nAvisanos qu\u00e9 te parece esta recomendaci\u00f3n \ud83d\udcdd";
+      : "\u00bfPudiste practicar lo que te recomendamos? \ud83c\udfcc\ufe0f Eleg\u00ed la opci\u00f3n 1 (An\u00e1lisis de swing) y mandanos un video nuevo para ver si mejoraste \ud83d\udcaa";
     try { _enviarMensajeWhatsApp(whatsapp, mensaje); } catch (err) { Logger.log("Error enviando nudge a " + whatsapp + ": " + err); }
     sheet.getRange(i+1, COL.FECHA_NUDGE).setValue(ahora);
   }
