@@ -590,7 +590,7 @@ function _procesarMensajeEntrante(from, text) {
         _enviarMensajeWhatsApp(from, "\uD83D\uDCB0 *Cargar saldo*\n\n\u00bfCu\u00e1nto quer\u00e9s cargar a tu billetera Golfito? Escrib\u00ed el monto en pesos (solo el n\u00famero, sin puntos ni s\u00edmbolos).\n\nEj: *10000*");
         _guardarConversacion(from, { ...conv, paso: "esperando_monto_recarga" });
       } else if (v === "5") {
-        _enviarMensajeWhatsApp(from, "\ud83c\udf81 *Beneficio por referido*\n\nPasame el n\u00famero de WhatsApp de tu amigo/a, con c\u00f3digo de pa\u00eds _(ej: 56912345678 o 5491123456789)_.\n\nSi es alumno de Golfito, les acreditamos *" + _formatearSaldo(MONTO_REFERIDO) + "* a cada uno \uD83D\uDCB0");
+        _enviarMensajeWhatsApp(from, "\ud83c\udf81 *Beneficio por referido*\nRefer\u00ed este WhatsApp a tus amigos.\n\nLuego pasame su n\u00famero de WhatsApp, con c\u00f3digo de pa\u00eds _(ej: 56912345678 o 5491123456789)_.\n\nSi se dio de alta en Golfito, les acreditamos *" + _formatearSaldo(MONTO_REFERIDO) + "* a cada uno \uD83D\uDCB0");
         _guardarConversacion(from, { ...conv, paso: "esperando_telefono_referido", nombre });
       } else if (v === "6") {
         _enviarMensajeWhatsApp(from, "\u00a1Claro! Escrib\u00ed tu consulta o comentario y te respondemos a la brevedad \uD83D\udcdd");
