@@ -1206,13 +1206,18 @@ function enviarNudgePostSesion() {
   const sheet = ss.getSheetByName(SESIONES_SHEET);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
-  const ahora = new Date(); const diezMinutos = 10 * 60 * 1000;
+  const ahora = new Date(); const diezMinutos = 10 * 60 * 1000; const treintaMinutos = 30 * 60 * 1000;
   for (let i = 1; i < data.length; i++) {
     const ejvsplan = _safeString(data[i][COL.EJVSPLAN-1]); const status = _safeString(data[i][COL.STATUS-1]).toLowerCase();
     const fechaNudge = data[i][COL.FECHA_NUDGE-1]; const timestamp = data[i][COL.TIMESTAMP-1];
     const whatsapp = _safeString(data[i][COL.WHATSAPP-1]);
     if ((ejvsplan !== "1" && ejvsplan !== "2") || status !== "enviado" || fechaNudge || !timestamp || !whatsapp) continue;
-    if (ahora - new Date(timestamp) < diezMinutos) continue;
+    const antiguedad = ahora - new Date(timestamp);
+    if (antiguedad < diezMinutos) continue;
+    // Ventana vencida (sesi\u00f3n vieja, ej. de antes de activar este trigger): la marcamos
+    // como procesada sin mandar nada \u2014 un nudge de "\u00bfc\u00f3mo te fue?" con horas/d\u00edas de
+    // atraso confunde m\u00e1s de lo que ayuda.
+    if (antiguedad > treintaMinutos) { sheet.getRange(i+1, COL.FECHA_NUDGE).setValue(ahora); continue; }
     // Si ya tiene una sesi\u00f3n m\u00e1s nueva, ya avanz\u00f3 \u2014 no tiene sentido empujarlo
     let esLaMasReciente = true;
     for (let j = i + 1; j < data.length; j++) { if (_safeString(data[j][COL.WHATSAPP-1]) === whatsapp) { esLaMasReciente = false; break; } }
