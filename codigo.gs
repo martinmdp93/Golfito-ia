@@ -385,8 +385,13 @@ function _procesarMensajeEntrante(from, text) {
     const conv = _obtenerConversacion(from);
     const paso = conv.paso || "inicio";
     const textLower = text.toLowerCase();
+    // "Hola!", "hola.", "Hello" tienen que resetear igual que "hola" a secas — antes el
+    // match exacto no toleraba signos de puntuación y dejaba al alumno trabado en el paso
+    // en el que estuviera (ej. en un submenú del que no podía salir).
+    const saludoNormalizado = textLower.replace(/[!?.,;:¡¿]+$/g, "").trim();
+    const esSaludo = ["hola", "inicio", "hello", "hi", "buenas"].includes(saludoNormalizado);
 
-    if (textLower === "hola" || textLower === "inicio" || paso === "inicio") {
+    if (esSaludo || paso === "inicio") {
       if (_esUsuarioConocido(from)) {
         const nombre = _obtenerNombreLead(from);
         if (!conv.pais) {
@@ -400,7 +405,7 @@ function _procesarMensajeEntrante(from, text) {
           _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
         }
       } else {
-        _enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\n\u00bfCu\u00e1l es tu nombre?");
+        _enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\nAcordate que tu primer an\u00e1lisis de swing no te cuesta nada \ud83d\ude09\n\n\u00bfCu\u00e1l es tu nombre?");
         _guardarConversacion(from, { paso: "esperando_nombre", nombre: "", handicap: "", aspecto: "", ejvsplan: "", video_url1: "", video_url2: "" });
       }
       return;
@@ -595,6 +600,9 @@ function _procesarMensajeEntrante(from, text) {
       } else if (v === "6") {
         _enviarMensajeWhatsApp(from, "\u00a1Claro! Escrib\u00ed tu consulta o comentario y te respondemos a la brevedad \uD83D\udcdd");
         _guardarConversacion(from, { ...conv, paso: "esperando_consulta" });
+      } else if (["menu", "men\u00fa", "volver", "salir", "cancelar"].includes(textLower)) {
+        _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
+        _enviarMenuPrincipal(from, nombre);
       } else {
         _enviarSubmenuGestiones(from, nombre);
       }
