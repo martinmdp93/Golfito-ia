@@ -35,6 +35,8 @@ const SALDO_INICIAL_LEAD = 3500;
 
 const RECORDATORIO_TEMPLATE_NAME = "referidos";
 const RECORDATORIO_TEMPLATE_LANG = "es_AR";
+const DESCUENTO_TEMPLATE_NAME = "descuento_temporal";
+const DESCUENTO_TEMPLATE_LANG = "es_AR";
 const RECORDATORIO_DIAS_INACTIVIDAD = 7;
 
 const ENTRADA_CALOR_STD = "Empeza con 5 minutos de movilidad articular (hombros, caderas y munecas). Tira 10-15 chips cortos para activar el tacto. Luego hace 5-8 swings completos a medio ritmo antes de arrancar con los ejercicios.";
@@ -2499,6 +2501,7 @@ function _setupBancoErrores() {
 // Se puede borrar una vez confirmado que el template llega bien.
 function _testRecordatorioAMiNumero() { _enviarTemplateWhatsApp("56949425602", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
 function _testRecordatorioOtroNumero() { _enviarTemplateWhatsApp("56975466327", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
+function _testDescuentoAMiNumero() { _enviarTemplateWhatsApp("56949425602", DESCUENTO_TEMPLATE_NAME, DESCUENTO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
 
 // Un solo uso: manda la plantilla actual (RECORDATORIO_TEMPLATE_NAME) a TODA la hoja
 // Leads, sin filtrar por inactividad (a diferencia de enviarRecordatorioSemanal, que
@@ -2515,6 +2518,23 @@ function _enviarReferidosATodaLaBase() {
     if (!whatsapp || !nombre) continue;
     try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: nombre }]); }
     catch(err) { Logger.log("Error enviando a toda la base a " + whatsapp + ": " + err); }
+  }
+}
+
+// Un solo uso: manda la plantilla DESCUENTO_TEMPLATE_NAME ("descuento_temporal") a TODA
+// la hoja Leads, sin filtrar por inactividad. Mismo patrón que _enviarReferidosATodaLaBase.
+// IMPORTANTE: el texto de la plantilla promete "$1.000" en el análisis — antes de correr
+// esta función, confirmar que COSTO_ANALISIS ya se ajustó a 1000 (ver constante al inicio
+// del archivo), si no el precio real que se le cobra al alumno no va a coincidir con la promo.
+function _enviarDescuentoATodaLaBase() {
+  const leadsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
+  if (!leadsSheet) return;
+  const leads = leadsSheet.getDataRange().getValues();
+  for (let i = 1; i < leads.length; i++) {
+    const whatsapp = _safeString(leads[i][0]); const nombre = _safeString(leads[i][1]);
+    if (!whatsapp || !nombre) continue;
+    try { _enviarTemplateWhatsApp(whatsapp, DESCUENTO_TEMPLATE_NAME, DESCUENTO_TEMPLATE_LANG, [{ name: "nombre", value: nombre }]); }
+    catch(err) { Logger.log("Error enviando descuento a " + whatsapp + ": " + err); }
   }
 }
 
