@@ -2500,6 +2500,24 @@ function _setupBancoErrores() {
 function _testRecordatorioAMiNumero() { _enviarTemplateWhatsApp("56949425602", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
 function _testRecordatorioOtroNumero() { _enviarTemplateWhatsApp("56975466327", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
 
+// Un solo uso: manda la plantilla actual (RECORDATORIO_TEMPLATE_NAME) a TODA la hoja
+// Leads, sin filtrar por inactividad (a diferencia de enviarRecordatorioSemanal, que
+// solo le manda a quien lleva RECORDATORIO_DIAS_INACTIVIDAD días sin interactuar).
+// Correr una sola vez a mano desde el editor (desplegable de funciones > Ejecutar)
+// cuando se quiera forzar un envío puntual a toda la base, ej. el día que se lanza
+// una plantilla nueva sin esperar al viernes.
+function _enviarReferidosATodaLaBase() {
+  const leadsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEADS_SHEET);
+  if (!leadsSheet) return;
+  const leads = leadsSheet.getDataRange().getValues();
+  for (let i = 1; i < leads.length; i++) {
+    const whatsapp = _safeString(leads[i][0]); const nombre = _safeString(leads[i][1]);
+    if (!whatsapp || !nombre) continue;
+    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: nombre }]); }
+    catch(err) { Logger.log("Error enviando a toda la base a " + whatsapp + ": " + err); }
+  }
+}
+
 // Editá esta lista con los números/nombres que quieras y correla desde el editor
 // (seleccionar _enviarRecordatorioALista en el desplegable de funciones > Ejecutar)
 // para mandar el recordatorio semanal a un grupo puntual, sin esperar al trigger
