@@ -30,7 +30,7 @@ const MODO_TEST_ANALISIS = PropertiesService.getScriptProperties().getProperty("
 const MODO_TEST_PLAN = PropertiesService.getScriptProperties().getProperty("MODO_TEST_PLAN") === "true";
 
 const COSTO_ANALISIS = 3500;
-const COSTO_PLAN = 15000;
+const COSTO_PLAN = 10000;
 const SALDO_INICIAL_LEAD = 3500;
 
 const RECORDATORIO_TEMPLATE_NAME = "referidos";
@@ -367,10 +367,10 @@ function _enviarSubmenuGestiones(from, nombre) {
   _enviarMensajeWhatsApp(from,
     "\uD83D\udccb *Otras gestiones*\n\n" +
     "1\ufe0f\u20e3 *\u00cdndice Golfito: califica tu swing*\n" +
-    "2\ufe0f\u20e3 *Plan personalizado* \u2014 $ 15.000\n" +
-    "3\ufe0f\u20e3 *Actualizar mis datos*\n" +
+    "2\ufe0f\u20e3 *Plan personalizado* \u2014 $ 10.000\n" +
+    "3\ufe0f\u20e3 *Beneficio por referido*\n" +
     "4\ufe0f\u20e3 *Cargar saldo*\n" +
-    "5\ufe0f\u20e3 *Beneficio por referido*\n" +
+    "5\ufe0f\u20e3 *Actualizar mis datos*\n" +
     "6\ufe0f\u20e3 *Hablar con un humano*"
   );
 }
@@ -589,14 +589,14 @@ function _procesarMensajeEntrante(from, text) {
           _guardarConversacion(from, { ...conv, paso: "esperando_video_plan_1", ejvsplan: "3", nombre, video_url1: "", video_url2: "", intentos_video: 0 });
         }
       } else if (v === "3") {
-        _enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s actualizar?\n\n1\ufe0f\u20e3 Mi nombre\n2\ufe0f\u20e3 Mi handicap");
-        _guardarConversacion(from, { ...conv, paso: "esperando_actualizar_datos" });
+        _enviarMensajeWhatsApp(from, "\ud83c\udf81 *Beneficio por referido*\nRefer\u00ed este WhatsApp a tus amigos.\n\nLuego pasame su n\u00famero de WhatsApp, con c\u00f3digo de pa\u00eds _(ej: 56912345678 o 5491123456789)_.\n\nSi se dio de alta en Golfito, les acreditamos *" + _formatearSaldo(MONTO_REFERIDO) + "* a cada uno \uD83D\uDCB0");
+        _guardarConversacion(from, { ...conv, paso: "esperando_telefono_referido", nombre });
       } else if (v === "4") {
         _enviarMensajeWhatsApp(from, "\uD83D\uDCB0 *Cargar saldo*\n\n\u00bfCu\u00e1nto quer\u00e9s cargar a tu billetera Golfito? Escrib\u00ed el monto en pesos (solo el n\u00famero, sin puntos ni s\u00edmbolos).\n\nEj: *10000*");
         _guardarConversacion(from, { ...conv, paso: "esperando_monto_recarga" });
       } else if (v === "5") {
-        _enviarMensajeWhatsApp(from, "\ud83c\udf81 *Beneficio por referido*\nRefer\u00ed este WhatsApp a tus amigos.\n\nLuego pasame su n\u00famero de WhatsApp, con c\u00f3digo de pa\u00eds _(ej: 56912345678 o 5491123456789)_.\n\nSi se dio de alta en Golfito, les acreditamos *" + _formatearSaldo(MONTO_REFERIDO) + "* a cada uno \uD83D\uDCB0");
-        _guardarConversacion(from, { ...conv, paso: "esperando_telefono_referido", nombre });
+        _enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 quer\u00e9s actualizar?\n\n1\ufe0f\u20e3 Mi nombre\n2\ufe0f\u20e3 Mi handicap");
+        _guardarConversacion(from, { ...conv, paso: "esperando_actualizar_datos" });
       } else if (v === "6") {
         _enviarMensajeWhatsApp(from, "\u00a1Claro! Escrib\u00ed tu consulta o comentario y te respondemos a la brevedad \uD83D\udcdd");
         _guardarConversacion(from, { ...conv, paso: "esperando_consulta" });
@@ -879,7 +879,7 @@ function _procesarMensajeEntrante(from, text) {
             const cod = _safeString(_obtenerCodigoPlanPendiente(from)) || _generarCodigoPlan();
             const mpR = _crearPreferenciaPago(from, nombre, "plan", cod, COSTO_PLAN);
             const lnk = mpR.ok ? mpR.link : "https://mpago.la/TU-LINK-PLAN";
-            _enviarMensajeWhatsApp(from, "Para continuar, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + lnk + "\n\nCualquier otra consulta escribinos \u26f3");
+            _enviarMensajeWhatsApp(from, "Para continuar, realiz\u00e1 el pago de *$ 10.000* ac\u00e1:\n" + lnk + "\n\nCualquier otra consulta escribinos \u26f3");
             _guardarConversacion(from, { ...conv, paso: "esperando_pago_plan", mp_codigo_plan: cod });
           }
         }
@@ -986,7 +986,7 @@ function _ofrecerRecargaPlan(from, nombre, conv, comentarios) {
     const codigoPlan = _generarCodigoPlan();
     const mpResPlan = _crearPreferenciaPago(from, nombre, "plan", codigoPlan, COSTO_PLAN);
     if (mpResPlan.ok) {
-      _enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Para confirmar tu plan, realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + mpResPlan.link + "\n\nUna vez confirmado el pago te avisamos y empezamos \ud83c\udfcc\ufe0f");
+      _enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Para confirmar tu plan, realiz\u00e1 el pago de *$ 10.000* ac\u00e1:\n" + mpResPlan.link + "\n\nUna vez confirmado el pago te avisamos y empezamos \ud83c\udfcc\ufe0f");
       const datosConPago = { ...conv, paso: "esperando_pago_plan", comentarios_alumno: comentarios, mp_codigo_plan: codigoPlan };
       _guardarConversacion(from, datosConPago);
       _registrarSesion(from, { ...datosConPago, ejvsplan: "3" });
@@ -1102,7 +1102,7 @@ function _procesarVideoEntrante(from, mediaId) {
             const cod2 = _safeString(_obtenerCodigoPlanPendiente(from)) || _generarCodigoPlan();
             const mpRes2 = _crearPreferenciaPago(from, nombre, "plan", cod2, COSTO_PLAN);
             const lnk2 = mpRes2.ok ? mpRes2.link : "https://mpago.la/TU-LINK-PLAN";
-            _enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + nombre + " \u2705\n\nPara continuar realiz\u00e1 el pago de *$ 15.000* ac\u00e1:\n" + lnk2 + "\n\nCualquier otra consulta escribinos \u26f3");
+            _enviarMensajeWhatsApp(from, "Recib\u00ed tu video " + nombre + " \u2705\n\nPara continuar realiz\u00e1 el pago de *$ 10.000* ac\u00e1:\n" + lnk2 + "\n\nCualquier otra consulta escribinos \u26f3");
             _guardarConversacion(from, { ...conv, paso: "esperando_pago_plan", video_url1: driveUrl, mp_codigo_plan: cod2 });
           }
         }
@@ -2232,7 +2232,7 @@ function _construirMensajeFinal(plan, ejercicios) {
   return "\u26f3 *"+e.nombre+"*\n_"+e.instruccion+"_\n\n"+plan+"\n\n\ud83c\udfa5 "+e.video_url+"\n\n\ud83d\udca1 *Tip:* Enfocate en calidad antes que cantidad.\n\ud83c\udf10 _Activa los subtitulos en tu idioma en el video de YouTube._\n\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nCualquier otra consulta escribinos \u26f3";
 }
 function _construirMensajePendienteManual(nombre, perfil) { return "Hola "+(nombre||"")+" \u26f3 Recib\u00ed tu pedido. Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1."; }
-function _construirMensajeUpsell(nombre) { return "Hola "+(nombre||"")+" \u26f3\n\nYa usaste tu ejercicio gratuito.\n\nPara seguir mejorando:\n- \ud83c\udfa5 *An\u00e1lisis de video con IA* \u2014 $ 3.500\n- \ud83d\udccb *Plan personalizado* \u2014 $ 15.000\n\nCualquier otra consulta escribinos \u26f3"; }
+function _construirMensajeUpsell(nombre) { return "Hola "+(nombre||"")+" \u26f3\n\nYa usaste tu ejercicio gratuito.\n\nPara seguir mejorando:\n- \ud83c\udfa5 *An\u00e1lisis de video con IA* \u2014 $ 3.500\n- \ud83d\udccb *Plan personalizado* \u2014 $ 10.000\n\nCualquier otra consulta escribinos \u26f3"; }
 function _obtenerEjerciciosYaEnviados(sesiones, whatsapp) {
   const h=[];
   for (let i=1;i<sesiones.length;i++) { const wa=_safeString(sesiones[i][COL.WHATSAPP-1]); const st=_safeString(sesiones[i][COL.STATUS-1]).toLowerCase(); const eid=_safeString(sesiones[i][COL.EJERCICIO_GRATIS_ID-1]); const ejv=_safeString(sesiones[i][COL.EJVSPLAN-1]); if (wa===whatsapp && st==="enviado" && ejv==="1" && eid && eid!=="UPSELL" && eid!=="SIN_EJERCICIO") h.push(eid); }
