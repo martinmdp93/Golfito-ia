@@ -367,8 +367,8 @@ function _enviarSubmenuGestiones(from, nombre) {
   _enviarMensajeWhatsApp(from,
     "\uD83D\udccb *Otras gestiones*\n\n" +
     "1\ufe0f\u20e3 *\u00cdndice Golfito: califica tu swing*\n" +
-    "2\ufe0f\u20e3 *Plan personalizado* \u2014 $ 10.000\n" +
-    "3\ufe0f\u20e3 *Beneficio por referido*\n" +
+    "2\ufe0f\u20e3 *Plan Personalizado*\n" +
+    "3\ufe0f\u20e3 *Referidos*\n" +
     "4\ufe0f\u20e3 *Cargar saldo*\n" +
     "5\ufe0f\u20e3 *Actualizar mis datos*\n" +
     "6\ufe0f\u20e3 *Hablar con un humano*"
