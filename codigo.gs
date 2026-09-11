@@ -29,7 +29,7 @@ const VERIFY_TOKEN = "golfito_verify_123";
 const MODO_TEST_ANALISIS = PropertiesService.getScriptProperties().getProperty("MODO_TEST_ANALISIS") === "true";
 const MODO_TEST_PLAN = PropertiesService.getScriptProperties().getProperty("MODO_TEST_PLAN") === "true";
 
-const COSTO_ANALISIS = 3500;
+const COSTO_ANALISIS = 1000;
 const COSTO_PLAN = 10000;
 const SALDO_INICIAL_LEAD = 3500;
 
@@ -359,7 +359,7 @@ function _enviarMenuPrincipal(from, nombre) {
     "\u00a1Hola de nuevo *" + nombre + "*! \u26f3\n" +
     "\uD83D\uDCB0 *Saldo disponible: " + saldoStr + "*\n\n" +
     "\u00bfCon qu\u00e9 te puedo ayudar?\n\n" +
-    "1\ufe0f\u20e3 *An\u00e1lisis de swing* \u2014 $ 3.500\n" +
+    "1\ufe0f\u20e3 *An\u00e1lisis de swing* \u2014 $ 1.000\n" +
     "2\ufe0f\u20e3 *Ejercicio gratis*\n" +
     "3\ufe0f\u20e3 *Otras gestiones*"
   );
@@ -944,7 +944,7 @@ function _ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto) {
     const codigoAnal = "ANAL-" + String(Date.now()).slice(-6);
     const mpResAnal = _crearPreferenciaPago(from, nombre, "analisis", codigoAnal, COSTO_ANALISIS);
     if (mpResAnal.ok) {
-      _enviarMensajeWhatsApp(from, "Para analizar tu swing realiz\u00e1 el pago de *$ 3.500* ac\u00e1:\n" + mpResAnal.link + "\n\nUna vez que pagues, escribinos ac\u00e1 \u26f3");
+      _enviarMensajeWhatsApp(from, "Para analizar tu swing realiz\u00e1 el pago de *$ 1.000* ac\u00e1:\n" + mpResAnal.link + "\n\nUna vez que pagues, escribinos ac\u00e1 \u26f3");
       _guardarConversacion(from, { ...datosConContexto, paso: "esperando_pago_analisis", mp_external_ref: mpResAnal.externalRef || codigoAnal });
     } else {
       _enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
@@ -2245,7 +2245,7 @@ function _construirMensajeFinal(plan, ejercicios) {
   return "\u26f3 *"+e.nombre+"*\n_"+e.instruccion+"_\n\n"+plan+"\n\n\ud83c\udfa5 "+e.video_url+"\n\n\ud83d\udca1 *Tip:* Enfocate en calidad antes que cantidad.\n\ud83c\udf10 _Activa los subtitulos en tu idioma en el video de YouTube._\n\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\nCualquier otra consulta escribinos \u26f3";
 }
 function _construirMensajePendienteManual(nombre, perfil) { return "Hola "+(nombre||"")+" \u26f3 Recib\u00ed tu pedido. Estamos preparando tu plan personalizado y te lo enviamos pronto por ac\u00e1."; }
-function _construirMensajeUpsell(nombre) { return "Hola "+(nombre||"")+" \u26f3\n\nYa usaste tu ejercicio gratuito.\n\nPara seguir mejorando:\n- \ud83c\udfa5 *An\u00e1lisis de video con IA* \u2014 $ 3.500\n- \ud83d\udccb *Plan personalizado* \u2014 $ 10.000\n\nCualquier otra consulta escribinos \u26f3"; }
+function _construirMensajeUpsell(nombre) { return "Hola "+(nombre||"")+" \u26f3\n\nYa usaste tu ejercicio gratuito.\n\nPara seguir mejorando:\n- \ud83c\udfa5 *An\u00e1lisis de video con IA* \u2014 $ 1.000\n- \ud83d\udccb *Plan personalizado* \u2014 $ 10.000\n\nCualquier otra consulta escribinos \u26f3"; }
 function _obtenerEjerciciosYaEnviados(sesiones, whatsapp) {
   const h=[];
   for (let i=1;i<sesiones.length;i++) { const wa=_safeString(sesiones[i][COL.WHATSAPP-1]); const st=_safeString(sesiones[i][COL.STATUS-1]).toLowerCase(); const eid=_safeString(sesiones[i][COL.EJERCICIO_GRATIS_ID-1]); const ejv=_safeString(sesiones[i][COL.EJVSPLAN-1]); if (wa===whatsapp && st==="enviado" && ejv==="1" && eid && eid!=="UPSELL" && eid!=="SIN_EJERCICIO") h.push(eid); }
