@@ -396,16 +396,8 @@ function _procesarMensajeEntrante(from, text) {
     if (esSaludo || paso === "inicio") {
       if (_esUsuarioConocido(from)) {
         const nombre = _obtenerNombreLead(from);
-        if (!conv.pais) {
-          // Leads que se registraron antes de que existiera la pregunta de país
-          // nunca tienen conv.pais guardado, y _crearPreferenciaPago cae a "CL"
-          // por default — se los termina cobrando en CLP aunque sean de otro país.
-          _enviarMensajeWhatsApp(from, "Antes de seguir, contame ¿en qué país estás?\n\n1️⃣ Chile\n2️⃣ Argentina");
-          _guardarConversacion(from, { ...conv, paso: "esperando_pais_retorno", nombre });
-        } else {
-          _enviarMenuPrincipal(from, nombre);
-          _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
-        }
+        _enviarMenuPrincipal(from, nombre);
+        _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
       } else {
         _enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\nAcordate que tu primer an\u00e1lisis de swing no te cuesta nada \ud83d\ude09\n\n\u00bfCu\u00e1l es tu nombre?");
         _guardarConversacion(from, { paso: "esperando_nombre", nombre: "", handicap: "", aspecto: "", ejvsplan: "", video_url1: "", video_url2: "" });
@@ -668,17 +660,8 @@ function _procesarMensajeEntrante(from, text) {
         _enviarMensajeWhatsApp(from, "El monto m\u00ednimo es $1.000. Ingres\u00e1 un n\u00famero v\u00e1lido, o escrib\u00ed *menu* para volver al men\u00fa:");
         return;
       }
-      const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
-      const mpRes = _crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, monto);
-      if (mpRes.ok) {
-        _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Para cargar *" + _formatearSaldo(monto) + "* a tu billetera, realiz\u00e1 el pago ac\u00e1:\n" + mpRes.link + "\n\nUna vez que pagues, escribinos ac\u00e1 y acreditamos el saldo \uD83D\uDCB0");
-        _guardarConversacion(from, { ...conv, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: monto });
-        _registrarSesionRecarga(from, conv, monto, mpRes.externalRef);
-      } else {
-        _enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intent\u00e1 de nuevo \u26f3");
-        _enviarSubmenuGestiones(from, nombre);
-        _guardarConversacion(from, { ...conv, paso: "esperando_submenu_gestiones" });
-      }
+      if (!conv.pais) { _pedirPaisAntesDePago(from, conv, "recarga_menu", { monto_pendiente_pais: monto }); return; }
+      _procesarRecargaConMonto(from, nombre, conv, monto);
       return;
     }
 
@@ -720,25 +703,23 @@ function _procesarMensajeEntrante(from, text) {
     }
     if (paso === "esperando_nombre") {
       const nombre = _sanitizarNombre(text);
-      _enviarMensajeWhatsApp(from, "Hola *" + nombre + "* \ud83d\udc4b\n\n\u00bfEn qu\u00e9 pa\u00eds est\u00e1s?\n\n1\ufe0f\u20e3 Chile\n2\ufe0f\u20e3 Argentina");
-      _guardarConversacion(from, { ...conv, paso: "esperando_pais", nombre }); return;
+      _enviarMensajeWhatsApp(from, "Hola *" + nombre + "* \ud83d\udc4b\n\n\u00bfCu\u00e1l es tu handicap?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
+      _guardarConversacion(from, { ...conv, paso: "esperando_handicap", nombre }); return;
     }
-    if (paso === "esperando_pais") {
+    if (paso === "esperando_pais_pago") {
       let pais;
-      if (text === "1") pais = "CL";
-      else if (text === "2") pais = "AR";
-      else { _enviarMensajeWhatsApp(from, "Por favor eleg\u00ed una opci\u00f3n:\n\n1\ufe0f\u20e3 Chile\n2\ufe0f\u20e3 Argentina"); return; }
-      _enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu handicap?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
-      _guardarConversacion(from, { ...conv, paso: "esperando_handicap", pais }); return;
-    }
-    if (paso === "esperando_pais_retorno") {
-      let pais;
-      if (text === "1") pais = "CL";
-      else if (text === "2") pais = "AR";
-      else { _enviarMensajeWhatsApp(from, "Por favor eleg\u00ed una opci\u00f3n:\n\n1\ufe0f\u20e3 Chile\n2\ufe0f\u20e3 Argentina"); return; }
+      if (["1","argentina","ar"].includes(textLower)) pais = "AR";
+      else if (["2","chile","cl"].includes(textLower)) pais = "CL";
+      else { _enviarMensajeWhatsApp(from, "Por favor eleg\u00ed una opci\u00f3n:\n\n1\ufe0f\u20e3 Argentina\n2\ufe0f\u20e3 Chile"); return; }
       const nombre = conv.nombre || _obtenerNombreLead(from);
-      _enviarMenuPrincipal(from, nombre);
-      _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", pais }); return;
+      const convConPais = { ...conv, pais };
+      const accion = conv.accion_pendiente_pais;
+      if (accion === "analisis_previa") { _ofrecerRecargaAnalisisPrevia(from, nombre, convConPais); }
+      else if (accion === "analisis_con_video") { _ofrecerRecargaAnalisis(from, nombre, convConPais, convConPais); }
+      else if (accion === "plan") { _ofrecerRecargaPlan(from, nombre, convConPais, convConPais.comentarios_alumno || ""); }
+      else if (accion === "recarga_menu") { _procesarRecargaConMonto(from, nombre, convConPais, convConPais.monto_pendiente_pais || 0); }
+      else { _guardarConversacion(from, { ...convConPais, paso: "esperando_menu_principal" }); _enviarMenuPrincipal(from, nombre); }
+      return;
     }
     if (paso === "esperando_handicap") {
       // Capturar el lead acá mismo (no esperar a que termine una sesión) — si no,
@@ -914,9 +895,37 @@ function _procesarMensajeEntrante(from, text) {
 }
 
 // ============================================
+// PAÍS JUST-IN-TIME (antes del primer pago, no en el onboarding)
+// ============================================
+// Se pregunta recién cuando el alumno va a pagar algo (recarga, análisis o plan) en vez
+// de en el onboarding — la mayoría prueba gratis (ejercicio/índice) y nunca necesita esto,
+// así que preguntarlo antes solo agrega fricción sin usarse. `datosExtra` guarda lo que
+// haga falta para retomar la acción pendiente una vez que responda el país (ej. el monto
+// que estaba por cargar).
+function _pedirPaisAntesDePago(from, conv, accionPendiente, datosExtra) {
+  _enviarMensajeWhatsApp(from, "Antes de continuar, contame ¿en qué país estás?\n\n1️⃣ Argentina\n2️⃣ Chile");
+  _guardarConversacion(from, { ...conv, ...(datosExtra||{}), paso: "esperando_pais_pago", accion_pendiente_pais: accionPendiente });
+}
+
+function _procesarRecargaConMonto(from, nombre, conv, monto) {
+  const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
+  const mpRes = _crearPreferenciaPago(from, nombre, "recarga", codigoRecarga, monto);
+  if (mpRes.ok) {
+    _enviarMensajeWhatsApp(from, "Perfecto ⛳ Para cargar *" + _formatearSaldo(monto) + "* a tu billetera, realizá el pago acá:\n" + mpRes.link + "\n\nUna vez que pagues, escribinos acá y acreditamos el saldo 💰");
+    _guardarConversacion(from, { ...conv, paso: "esperando_pago_recarga", mp_external_ref: mpRes.externalRef, monto_recarga: monto });
+    _registrarSesionRecarga(from, conv, monto, mpRes.externalRef);
+  } else {
+    _enviarMensajeWhatsApp(from, "Hubo un problema al generar el link de pago. Intentá de nuevo ⛳");
+    _enviarSubmenuGestiones(from, nombre);
+    _guardarConversacion(from, { ...conv, paso: "esperando_submenu_gestiones" });
+  }
+}
+
+// ============================================
 // HELPERS WALLET — OFRECER RECARGA
 // ============================================
 function _ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto) {
+  if (!conv.pais) { _pedirPaisAntesDePago(from, datosConContexto, "analisis_con_video"); return; }
   const saldo = _obtenerSaldoLead(from);
   const falta = COSTO_ANALISIS - saldo;
   const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
@@ -950,6 +959,7 @@ function _ofrecerRecargaAnalisis(from, nombre, conv, datosConContexto) {
 // y volver a pedirlo). Al confirmarse el pago, el handler de
 // esperando_pago_recarga (post_recarga="analisis_pre") recién ahí pide el video.
 function _ofrecerRecargaAnalisisPrevia(from, nombre, conv) {
+  if (!conv.pais) { _pedirPaisAntesDePago(from, conv, "analisis_previa"); return; }
   const saldo = _obtenerSaldoLead(from);
   const falta = COSTO_ANALISIS - saldo;
   const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
@@ -971,6 +981,7 @@ function _ofrecerRecargaAnalisisPrevia(from, nombre, conv) {
 }
 
 function _ofrecerRecargaPlan(from, nombre, conv, comentarios) {
+  if (!conv.pais) { _pedirPaisAntesDePago(from, conv, "plan", { comentarios_alumno: comentarios }); return; }
   const saldo = _obtenerSaldoLead(from);
   const falta = COSTO_PLAN - saldo;
   const codigoRecarga = "RECARGA-" + String(Date.now()).slice(-6);
@@ -2049,7 +2060,7 @@ function _logBancoErroresEnviado(from, analisis, codigo, fileId) {
 // ============================================
 function _crearPreferenciaPago(whatsapp, nombre, tipo, codigoPlan, montoCustom) {
   try {
-    const paisConv = _obtenerConversacion(whatsapp).pais || "CL";
+    const paisConv = _obtenerConversacion(whatsapp).pais || "AR";
     const MP_TOKEN_AR = PropertiesService.getScriptProperties().getProperty("MP_ACCESS_TOKEN_AR");
     const mpToken = (paisConv === "AR" && MP_TOKEN_AR) ? MP_TOKEN_AR : MP_ACCESS_TOKEN;
     const currency = paisConv === "AR" ? "ARS" : "CLP";
