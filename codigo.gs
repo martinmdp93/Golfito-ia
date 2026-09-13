@@ -321,32 +321,56 @@ function _normalizarTelefonoReferido(text) {
   return _safeString(text).replace(/\D/g, "");
 }
 
+// "pendiente" cuenta como "ya usado" para evitar que dos personas distintas anoten
+// al mismo número como referido mientras se espera a que escriba su primer "hola".
 function _referidoYaAcreditado(telefonoReferido) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(REFERIDOS_SHEET);
   if (!sheet) return false;
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (_safeString(data[i][2]) === telefonoReferido && _safeString(data[i][4]) === "ok") return true;
+    const status = _safeString(data[i][4]);
+    if (_safeString(data[i][2]) === telefonoReferido && (status === "ok" || status === "pendiente")) return true;
   }
   return false;
 }
 
-function _contarReferidosOk(whatsappReferidor) {
+// Cuenta "ok" + "pendiente" para el tope por persona — si no, alguien podría anotar
+// más de REFERIDOS_MAX_POR_PERSONA pendientes a la espera de que se acrediten.
+function _contarReferidosActivos(whatsappReferidor) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(REFERIDOS_SHEET);
   if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
   let count = 0;
   for (let i = 1; i < data.length; i++) {
-    if (_safeString(data[i][1]) === whatsappReferidor && _safeString(data[i][4]) === "ok") count++;
+    const status = _safeString(data[i][4]);
+    if (_safeString(data[i][1]) === whatsappReferidor && (status === "ok" || status === "pendiente")) count++;
   }
   return count;
 }
 
-function _guardarReferido(whatsappReferidor, whatsappReferido, monto) {
+function _guardarReferido(whatsappReferidor, whatsappReferido, monto, status) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(REFERIDOS_SHEET);
   if (!sheet) { sheet = ss.insertSheet(REFERIDOS_SHEET); sheet.appendRow(["timestamp","whatsapp_referidor","whatsapp_referido","monto_acreditado","status"]); }
-  sheet.appendRow([new Date(), whatsappReferidor, whatsappReferido, monto, "ok"]);
+  sheet.appendRow([new Date(), whatsappReferidor, whatsappReferido, monto, status]);
+}
+
+// Se llama cuando un número desconocido escribe por primera vez ("hola"). Si ese
+// número estaba anotado como referido pendiente, marca la fila "ok" y devuelve
+// quién lo refirió + el monto, para acreditar a ambos recién en ese momento — nunca
+// antes, porque hasta entonces el referido "no entró nunca a Golfito" (así lo pidió
+// Martín) y no tiene sentido acreditarle ni avisarle nada por fuera de la conversación.
+function _resolverReferidoPendiente(whatsappReferido) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(REFERIDOS_SHEET);
+  if (!sheet) return null;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (_safeString(data[i][2]) === whatsappReferido && _safeString(data[i][4]) === "pendiente") {
+      sheet.getRange(i + 1, 5).setValue("ok");
+      return { whatsappReferidor: _safeString(data[i][1]), monto: parseFloat(data[i][3]) || MONTO_REFERIDO };
+    }
+  }
+  return null;
 }
 
 // ============================================
@@ -399,7 +423,7 @@ function _procesarMensajeEntrante(from, text) {
         _enviarMenuPrincipal(from, nombre);
         _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
       } else {
-        _enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\nAcordate que tu primer an\u00e1lisis de swing no te cuesta nada \ud83d\ude09\n\n\u00bfCu\u00e1l es tu nombre?");
+        _enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\nTen\u00e9s *" + _formatearSaldo(SALDO_INICIAL_LEAD) + "* precargados para usar en 2 d\u00edas, as\u00ed que tu primer an\u00e1lisis de swing no te cuesta nada \ud83d\ude09\n\n\u00bfCu\u00e1l es tu nombre?");
         _guardarConversacion(from, { paso: "esperando_nombre", nombre: "", handicap: "", aspecto: "", ejvsplan: "", video_url1: "", video_url2: "" });
       }
       return;
@@ -619,29 +643,26 @@ function _procesarMensajeEntrante(from, text) {
         _enviarMensajeWhatsApp(from, "No pod\u00e9s referirte a vos mismo \uD83D\ude09 Pasame el n\u00famero de un amigo/a.");
         return;
       }
-      if (!_esUsuarioConocido(telefonoReferido)) {
-        _enviarMensajeWhatsApp(from, "Todav\u00eda no encontramos ese n\u00famero entre nuestros alumnos. Pedile que primero le escriba *hola* a Golfito, y despu\u00e9s probamos de nuevo con el beneficio \ud83c\udf81");
+      if (_esUsuarioConocido(telefonoReferido)) {
+        _enviarMensajeWhatsApp(from, "Ese n\u00famero ya es alumno de Golfito \u2014 el beneficio es para gente nueva que todav\u00eda no lo prob\u00f3 \uD83D\ude4f");
         _guardarConversacion(from, { ...conv, paso: "esperando_submenu_gestiones" });
         _enviarSubmenuGestiones(from, nombre);
         return;
       }
       if (_referidoYaAcreditado(telefonoReferido)) {
-        _enviarMensajeWhatsApp(from, "Ese n\u00famero ya fue acreditado como referido antes, as\u00ed que no podemos volver a sumarlo \uD83D\ude4f");
+        _enviarMensajeWhatsApp(from, "Ese n\u00famero ya est\u00e1 anotado como referido (tuyo o de otra persona), as\u00ed que no podemos volver a sumarlo \uD83D\ude4f");
         _guardarConversacion(from, { ...conv, paso: "esperando_submenu_gestiones" });
         _enviarSubmenuGestiones(from, nombre);
         return;
       }
-      if (_contarReferidosOk(from) >= REFERIDOS_MAX_POR_PERSONA) {
-        _enviarMensajeWhatsApp(from, "Ya llegaste al m\u00e1ximo de " + REFERIDOS_MAX_POR_PERSONA + " referidos acreditados. \u00a1Gracias por recomendar Golfito! \uD83D\ude4c");
+      if (_contarReferidosActivos(from) >= REFERIDOS_MAX_POR_PERSONA) {
+        _enviarMensajeWhatsApp(from, "Ya llegaste al m\u00e1ximo de " + REFERIDOS_MAX_POR_PERSONA + " referidos. \u00a1Gracias por recomendar Golfito! \uD83D\ude4c");
         _guardarConversacion(from, { ...conv, paso: "esperando_submenu_gestiones" });
         _enviarSubmenuGestiones(from, nombre);
         return;
       }
-      _acreditarSaldoLead(from, MONTO_REFERIDO);
-      _acreditarSaldoLead(telefonoReferido, MONTO_REFERIDO);
-      _guardarReferido(from, telefonoReferido, MONTO_REFERIDO);
-      _enviarMensajeWhatsApp(from, "\ud83c\udf89 \u00a1Listo! Le acreditamos *" + _formatearSaldo(MONTO_REFERIDO) + "* a tu billetera y a la de tu amigo/a por el referido.");
-      try { _enviarMensajeWhatsApp(telefonoReferido, "\ud83c\udf81 " + nombre + " te refiri\u00f3 en Golfito y te acreditamos *" + _formatearSaldo(MONTO_REFERIDO) + "* a tu billetera. \u00a1Escrib\u00ed *hola* para verlo!"); } catch (errRef) { Logger.log("Error avisando al referido: " + errRef); }
+      _guardarReferido(from, telefonoReferido, MONTO_REFERIDO, "pendiente");
+      _enviarMensajeWhatsApp(from, "\ud83c\udf81 \u00a1Anotado! En cuanto tu amigo/a le escriba *hola* a Golfito por primera vez, les acreditamos *" + _formatearSaldo(MONTO_REFERIDO) + "* a cada uno.");
       _guardarConversacion(from, { ...conv, paso: "esperando_submenu_gestiones" });
       _enviarSubmenuGestiones(from, nombre);
       return;
@@ -726,6 +747,16 @@ function _procesarMensajeEntrante(from, text) {
       // alguien que da nombre/handicap y no llega a pedir nada queda sin registrar
       // en Leads, y cualquier recarga de saldo posterior no tiene fila donde guardarse.
       _registrarOActualizarLead(from, conv.nombre, text);
+      // Recién acá el lead queda registrado de verdad (nombre + handicap) — si se
+      // resolviera el referido antes de este punto, _acreditarSaldoLead auto-crearía
+      // la fila en Leads con nombre vacío, y _registrarOActualizarLead no lo pisa
+      // después (solo actualiza handicap si la fila ya existe).
+      const referidoPendiente = _resolverReferidoPendiente(from);
+      if (referidoPendiente) {
+        _acreditarSaldoLead(from, referidoPendiente.monto);
+        _acreditarSaldoLead(referidoPendiente.whatsappReferidor, referidoPendiente.monto);
+        _enviarMensajeWhatsApp(from, "🎁 Alguien te refirió a Golfito — te acreditamos *" + _formatearSaldo(referidoPendiente.monto) + "* extra a tu billetera.");
+      }
       _enviarMenuPrincipal(from, conv.nombre);
       _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", handicap: text }); return;
     }
