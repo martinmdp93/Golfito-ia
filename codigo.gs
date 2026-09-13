@@ -1455,11 +1455,14 @@ function _guardarConversacion(from, estado) {
   sheet.appendRow([from, JSON.stringify(estado), timestamp]);
 }
 
-function _enviarMensajeWhatsApp(telefono, mensaje) {
+function _enviarTextoWhatsApp(telefono, mensaje) {
   UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/messages", {
     method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN, "Content-Type": "application/json" },
     payload: JSON.stringify({ messaging_product: "whatsapp", to: telefono, type: "text", text: { body: mensaje } })
   });
+}
+function _enviarMensajeWhatsApp(telefono, mensaje) {
+  _enviarTextoWhatsApp(telefono, mensaje);
   _logMensaje(telefono, "saliente", "texto", mensaje);
 }
 function _enviarDocumentoWhatsApp(telefono, fileId, fileName) {
@@ -1663,10 +1666,16 @@ function obtenerChatLogPorWhatsapp(whatsapp, token) {
   } catch(err) { Logger.log("Error obtenerChatLogPorWhatsapp: " + err); return { mensajes: [] }; }
 }
 
+// Se loguea con tipo "manual" (no "texto") para poder distinguir después, en el
+// ChatLog, qué mensajes salieron del flujo automático vs. escritos a mano desde acá
+// — es la data base para analizar dónde hizo falta intervención humana.
 function enviarMensajeDesdePanel(whatsapp, mensaje, token) {
   try {
     if (!_autorizadoPanel(token)) return {ok:false,error:"No autorizado"};
-    if (!whatsapp||!mensaje) return {ok:false,error:"Numero y mensaje requeridos"}; _enviarMensajeWhatsApp(whatsapp,mensaje); return {ok:true};
+    if (!whatsapp||!mensaje) return {ok:false,error:"Numero y mensaje requeridos"};
+    _enviarTextoWhatsApp(whatsapp, mensaje);
+    _logMensaje(whatsapp, "saliente", "manual", mensaje);
+    return {ok:true};
   }
   catch(err) { Logger.log("Error enviarMensajeDesdePanel: "+err); return {ok:false,error:err.toString()}; }
 }

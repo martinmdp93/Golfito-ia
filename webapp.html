@@ -977,7 +977,7 @@ function seleccionarConversacion(wa,nombre,paso,fecha){
       const msgs=d.mensajes||[];
       if(!msgs.length){hist.innerHTML='<div class="chat-empty">Sin mensajes registrados todavía.</div>';return;}
       hist.innerHTML=msgs.map(m=>{
-        const esPanel=m.tipo==='texto'&&m.direccion==='saliente'&&m.contenido.startsWith('Panel:');
+        const esPanel=m.tipo==='manual'&&m.direccion==='saliente';
         const dir=m.direccion==='saliente'?'saliente'+(esPanel?' panel':''):'entrante';
         const burbuja=m.tipo==='video'||m.tipo==='video_drive'
           ?`<div class="chat-tipo-video">🎥 Video enviado</div>`
