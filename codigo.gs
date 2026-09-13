@@ -1299,8 +1299,11 @@ function _crearTriggerNudgePostSesion() {
 // NUDGE DE ONBOARDING ABANDONADO (trigger: cada 1 hora, ver _crearTriggerNudgeOnboarding)
 // A alumnos que se registraron (dieron nombre y handicap) pero nunca llegaron a probar
 // ni el ejercicio gratis ni el análisis — antes esto lo recordaba Martín a mano un día
-// después. Ventana 24-72hs: ni muy pronto (dale tiempo a probarlo solo) ni tan tarde
-// que sea un mensaje raro sobre algo de hace una semana.
+// después. Ventana 12-20hs desde el registro (no 24-72hs): este mensaje es texto libre,
+// no plantilla, y WhatsApp bloquea texto libre a un número que no te escribió en las
+// últimas 24hs — como fecha_registro suele ser también su último mensaje (si no
+// volvieron a escribir), hay que llegar ANTES de esas 24hs, con margen para que el
+// trigger horario no se pase.
 // ============================================
 function enviarNudgeOnboarding() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1316,7 +1319,7 @@ function enviarNudgeOnboarding() {
       if (wa) tieneSesion[wa] = true;
     }
   }
-  const ahora = new Date(); const minimoMs = 24 * 60 * 60 * 1000; const maximoMs = 72 * 60 * 60 * 1000;
+  const ahora = new Date(); const minimoMs = 12 * 60 * 60 * 1000; const maximoMs = 20 * 60 * 60 * 1000;
   for (let i = 1; i < leads.length; i++) {
     const whatsapp = _safeString(leads[i][0]); const nombre = _safeString(leads[i][1]);
     const fechaRegistro = leads[i][2]; const fechaNudge = leads[i][LEADS_COL_FECHA_NUDGE_ONBOARDING - 1];
@@ -1325,7 +1328,7 @@ function enviarNudgeOnboarding() {
     const antiguedad = ahora - new Date(fechaRegistro);
     if (antiguedad < minimoMs) continue;
     if (antiguedad <= maximoMs) {
-      try { _enviarMensajeWhatsApp(whatsapp, "¡Hola " + nombre + "! ⛳ Todavía no probaste tu ejercicio gratis ni tu análisis de swing — escribime *hola* para ver el menú y arrancar cuando quieras 🏌️"); }
+      try { _enviarMensajeWhatsApp(whatsapp, "¡Hola " + nombre + "! ⛳ Todavía no probaste tu ejercicio gratis ni tu análisis de swing — no te lo pierdas, escribime *hola* cuando quieras arrancar 🏌️"); }
       catch (err) { Logger.log("Error enviando nudge de onboarding a " + whatsapp + ": " + err); }
     }
     leadsSheet.getRange(i + 1, LEADS_COL_FECHA_NUDGE_ONBOARDING).setValue(ahora);
