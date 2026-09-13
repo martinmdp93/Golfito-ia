@@ -63,8 +63,10 @@ const COL = {
   FEEDBACK_SCORE: 39, MP_PAYMENT_ID: 40, FECHA_NUDGE: 41
 };
 
-// Columnas Leads: whatsapp(1), nombre(2), fecha_registro(3), handicap(4), notas(5), saldo(6)
+// Columnas Leads: whatsapp(1), nombre(2), fecha_registro(3), handicap(4), notas(5), saldo(6),
+// fecha_nudge_onboarding(7)
 const LEADS_COL_SALDO = 6;
+const LEADS_COL_FECHA_NUDGE_ONBOARDING = 7;
 const INDICE_SHEET = "IndiceGolfito";
 const INDICE_HEADERS = ["timestamp","whatsapp","score_total","grip","postura","backswing","downswing","impacto","follow_through","transferencia_peso","video_url"];
 
@@ -264,7 +266,7 @@ function _debitarSaldoLead(from, monto) {
 function _acreditarSaldoLead(from, monto) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(LEADS_SHEET);
-  if (!sheet) { sheet = ss.insertSheet(LEADS_SHEET); sheet.appendRow(["whatsapp","nombre","fecha_registro","handicap","notas","saldo"]); }
+  if (!sheet) { sheet = ss.insertSheet(LEADS_SHEET); sheet.appendRow(["whatsapp","nombre","fecha_registro","handicap","notas","saldo","fecha_nudge_onboarding"]); }
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (_safeString(data[i][0]) === from) {
@@ -379,9 +381,13 @@ function _resolverReferidoPendiente(whatsappReferido) {
 function _enviarMenuPrincipal(from, nombre) {
   const saldo = _obtenerSaldoLead(from);
   const saldoStr = _formatearSaldo(saldo);
+  // Cuando el saldo llega a $0 (t\u00edpicamente justo despu\u00e9s de gastarlo en un an\u00e1lisis),
+  // nadie sab\u00eda c\u00f3mo conseguir m\u00e1s \u2014 Mart\u00edn terminaba explic\u00e1ndolo a mano una y otra
+  // vez por WhatsApp. Esta l\u00ednea reemplaza esa explicaci\u00f3n manual.
+  const tipSaldoCero = saldo <= 0 ? "\n\n\uD83D\udca1 \u00bfNecesit\u00e1s m\u00e1s saldo? Refer\u00ed a un amigo (_Otras gestiones \u2192 Referidos_) o carg\u00e1 con Mercado Pago (_Otras gestiones \u2192 Cargar saldo_)." : "";
   _enviarMensajeWhatsApp(from,
     "\u00a1Hola de nuevo *" + nombre + "*! \u26f3\n" +
-    "\uD83D\uDCB0 *Saldo disponible: " + saldoStr + "*\n\n" +
+    "\uD83D\uDCB0 *Saldo disponible: " + saldoStr + "*" + tipSaldoCero + "\n\n" +
     "\u00bfCon qu\u00e9 te puedo ayudar?\n\n" +
     "1\ufe0f\u20e3 *An\u00e1lisis de swing* \u2014 $ 3.500\n" +
     "2\ufe0f\u20e3 *Ejercicio gratis*\n" +
@@ -1290,6 +1296,49 @@ function _crearTriggerNudgePostSesion() {
 }
 
 // ============================================
+// NUDGE DE ONBOARDING ABANDONADO (trigger: cada 1 hora, ver _crearTriggerNudgeOnboarding)
+// A alumnos que se registraron (dieron nombre y handicap) pero nunca llegaron a probar
+// ni el ejercicio gratis ni el análisis — antes esto lo recordaba Martín a mano un día
+// después. Ventana 24-72hs: ni muy pronto (dale tiempo a probarlo solo) ni tan tarde
+// que sea un mensaje raro sobre algo de hace una semana.
+// ============================================
+function enviarNudgeOnboarding() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const leadsSheet = ss.getSheetByName(LEADS_SHEET);
+  const sesionesSheet = ss.getSheetByName(SESIONES_SHEET);
+  if (!leadsSheet) return;
+  const leads = leadsSheet.getDataRange().getValues();
+  const tieneSesion = {};
+  if (sesionesSheet) {
+    const sesiones = sesionesSheet.getDataRange().getValues();
+    for (let i = 1; i < sesiones.length; i++) {
+      const wa = _safeString(sesiones[i][COL.WHATSAPP-1]);
+      if (wa) tieneSesion[wa] = true;
+    }
+  }
+  const ahora = new Date(); const minimoMs = 24 * 60 * 60 * 1000; const maximoMs = 72 * 60 * 60 * 1000;
+  for (let i = 1; i < leads.length; i++) {
+    const whatsapp = _safeString(leads[i][0]); const nombre = _safeString(leads[i][1]);
+    const fechaRegistro = leads[i][2]; const fechaNudge = leads[i][LEADS_COL_FECHA_NUDGE_ONBOARDING - 1];
+    if (!whatsapp || !nombre || !fechaRegistro || fechaNudge) continue;
+    if (tieneSesion[whatsapp]) continue;
+    const antiguedad = ahora - new Date(fechaRegistro);
+    if (antiguedad < minimoMs) continue;
+    if (antiguedad <= maximoMs) {
+      try { _enviarMensajeWhatsApp(whatsapp, "¡Hola " + nombre + "! ⛳ Todavía no probaste tu ejercicio gratis ni tu análisis de swing — escribime *hola* para ver el menú y arrancar cuando quieras 🏌️"); }
+      catch (err) { Logger.log("Error enviando nudge de onboarding a " + whatsapp + ": " + err); }
+    }
+    leadsSheet.getRange(i + 1, LEADS_COL_FECHA_NUDGE_ONBOARDING).setValue(ahora);
+  }
+}
+
+// Correr UNA vez a mano desde el editor de Apps Script para crear el trigger — idempotente.
+function _crearTriggerNudgeOnboarding() {
+  ScriptApp.getProjectTriggers().forEach(function(t) { if (t.getHandlerFunction() === "enviarNudgeOnboarding") ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger("enviarNudgeOnboarding").timeBased().everyHours(1).create();
+}
+
+// ============================================
 // RECORDATORIO SEMANAL (trigger: viernes 14:00, ver _crearTriggerRecordatorioSemanal)
 // ============================================
 function enviarRecordatorioSemanal() {
@@ -1362,7 +1411,7 @@ function _logMensaje(from, direccion, tipo, contenido) {
 function _registrarOActualizarLead(from, nombre, handicap) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(LEADS_SHEET);
-  if (!sheet) { sheet = ss.insertSheet(LEADS_SHEET); sheet.appendRow(["whatsapp","nombre","fecha_registro","handicap","notas","saldo"]); }
+  if (!sheet) { sheet = ss.insertSheet(LEADS_SHEET); sheet.appendRow(["whatsapp","nombre","fecha_registro","handicap","notas","saldo","fecha_nudge_onboarding"]); }
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) { if (_safeString(data[i][0]) === from) { sheet.getRange(i+1,4).setValue(handicap); return; } }
   sheet.appendRow([from, nombre, new Date(), handicap, "", SALDO_INICIAL_LEAD]);
