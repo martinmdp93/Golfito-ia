@@ -385,13 +385,15 @@ function _enviarMenuPrincipal(from, nombre) {
   // nadie sab\u00eda c\u00f3mo conseguir m\u00e1s \u2014 Mart\u00edn terminaba explic\u00e1ndolo a mano una y otra
   // vez por WhatsApp. Esta l\u00ednea reemplaza esa explicaci\u00f3n manual.
   const tipSaldoCero = saldo <= 0 ? "\n\n\uD83D\udca1 \u00bfNecesit\u00e1s m\u00e1s saldo? Refer\u00ed a un amigo (_Otras gestiones \u2192 Referidos_) o carg\u00e1 con Mercado Pago (_Otras gestiones \u2192 Cargar saldo_)." : "";
+  // nombre puede venir vac\u00edo si alguien interrumpe el flujo agresivo (manda el video,
+  // pero escribe "hola" antes de decir su nombre) \u2014 sin esto quedar\u00eda "\u00a1Hola de nuevo **!".
+  const saludoNombre = nombre ? " de nuevo *" + nombre + "*" : "";
   _enviarMensajeWhatsApp(from,
-    "\u00a1Hola de nuevo *" + nombre + "*! \u26f3\n" +
+    "\u00a1Hola" + saludoNombre + "! \u26f3\n" +
     "\uD83D\uDCB0 *Saldo disponible: " + saldoStr + "*" + tipSaldoCero + "\n\n" +
     "\u00bfCon qu\u00e9 te puedo ayudar?\n\n" +
     "1\ufe0f\u20e3 *An\u00e1lisis de swing* \u2014 $ 3.500\n" +
-    "2\ufe0f\u20e3 *Ejercicio gratis*\n" +
-    "3\ufe0f\u20e3 *Otras gestiones*"
+    "2\ufe0f\u20e3 *Otras gestiones*"
   );
 }
 
@@ -429,8 +431,8 @@ function _procesarMensajeEntrante(from, text) {
         _enviarMenuPrincipal(from, nombre);
         _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
       } else {
-        _enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\nTen\u00e9s *" + _formatearSaldo(SALDO_INICIAL_LEAD) + "* precargados para usar en 2 d\u00edas, as\u00ed que tu primer an\u00e1lisis de swing no te cuesta nada \ud83d\ude09\n\n\u00bfCu\u00e1l es tu nombre?");
-        _guardarConversacion(from, { paso: "esperando_nombre", nombre: "", handicap: "", aspecto: "", ejvsplan: "", video_url1: "", video_url2: "" });
+        _enviarMensajeWhatsApp(from, "\u00a1Hola! \ud83c\udfcc\ufe0f Soy *Golfito*, tu coach de golf por WhatsApp.\n\nTen\u00e9s *" + _formatearSaldo(SALDO_INICIAL_LEAD) + "* de regalo para usar en 2 d\u00edas, as\u00ed que tu primer an\u00e1lisis de swing no te cuesta nada \ud83d\ude09\n\n\u27a1\ufe0f Mandame tu video y lo analizo");
+        _guardarConversacion(from, { paso: "esperando_video_o_nombre", nombre: "", handicap: "", aspecto: "", ejvsplan: "", video_url1: "", video_url2: "" });
       }
       return;
     }
@@ -577,16 +579,6 @@ function _procesarMensajeEntrante(from, text) {
           _ofrecerRecargaAnalisisPrevia(from, nombre, { ...conv, nombre });
         }
       } else if (v === "2") {
-        const handicap = conv.handicap || _obtenerHandicapLead(from);
-        if (conv.aspecto) {
-          _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Estoy preparando tu ejercicio...");
-          const datos = { ...conv, paso: "completo", ejvsplan: "1", nombre, handicap };
-          _guardarConversacion(from, datos); _registrarSesion(from, datos);
-        } else {
-          _enviarMensajeWhatsApp(from, "\u00bfQu\u00e9 aspecto quer\u00e9s trabajar?\n\n1\ufe0f\u20e3 Driver\n2\ufe0f\u20e3 Hierros\n3\ufe0f\u20e3 Approach\n4\ufe0f\u20e3 Putting\n5\ufe0f\u20e3 Bunker\n6\ufe0f\u20e3 Primera vez en el golf");
-          _guardarConversacion(from, { ...conv, paso: "esperando_aspecto_menu", ejvsplan: "1", nombre, handicap });
-        }
-      } else if (v === "3") {
         _enviarSubmenuGestiones(from, nombre);
         _guardarConversacion(from, { ...conv, paso: "esperando_submenu_gestiones", nombre });
       } else {
@@ -603,14 +595,12 @@ function _procesarMensajeEntrante(from, text) {
         _enviarMensajeWhatsApp(from, "\uD83D\uDCCA *\u00cdndice Golfito: califica tu swing*\n\nEnviam\u00e9 un video de tu swing *de perfil* _(c\u00e1mara al costado, viendo tu swing de lado, menos de 7 segundos)_ y evaluo tus 7 dimensiones t\u00e9cnicas con un score del 1 al 100 \ud83c\uDFCC\ufe0f");
         _guardarConversacion(from, { ...conv, paso: "esperando_video_indice", ejvsplan: "indice", nombre, video_url1: "", intentos_video: 0 });
       } else if (v === "2") {
-        const vids = _obtenerUltimosVideosSesion(from);
-        if (vids.url1 || vids.url2) {
-          const cuantos = (vids.url1 && vids.url2) ? "dos videos" : "un video";
-          _enviarMensajeWhatsApp(from, "Perfecto " + nombre + " \u26f3 Veo que ya enviaste " + cuantos + " anteriormente.\n\n\u00bfUsamos esos para armar tu plan, o quer\u00e9s enviar nuevos?\n\n1\ufe0f\u20e3 Usar los videos que ya envi\u00e9\n2\ufe0f\u20e3 Enviar videos nuevos");
-          _guardarConversacion(from, { ...conv, paso: "esperando_reusar_videos", ejvsplan: "3", nombre, video_url1_prev: vids.url1, video_url2_prev: vids.url2 });
+        const handicapActual = conv.handicap || _obtenerHandicapLead(from);
+        if (!handicapActual) {
+          _enviarMensajeWhatsApp(from, "Para armar tu plan necesito tu handicap.\n\n\u00bfCu\u00e1l es tu handicap?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
+          _guardarConversacion(from, { ...conv, paso: "esperando_handicap_para_plan", nombre });
         } else {
-          _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Para armar tu plan necesito videos de tu swing \ud83c\udfa5\n\nEnviame un video *de perfil* _(c\u00e1mara detr\u00e1s tuyo, menos de 7 segundos)_");
-          _guardarConversacion(from, { ...conv, paso: "esperando_video_plan_1", ejvsplan: "3", nombre, video_url1: "", video_url2: "", intentos_video: 0 });
+          _iniciarFlujoPlan(from, nombre, conv);
         }
       } else if (v === "3") {
         _enviarMensajeWhatsApp(from, "\ud83c\udf81 *Beneficio por referido*\nRefer\u00ed este WhatsApp a tus amigos.\n\nLuego pasame su n\u00famero de WhatsApp, con c\u00f3digo de pa\u00eds _(ej: 56912345678 o 5491123456789)_.\n\nSi se dio de alta en Golfito, les acreditamos *" + _formatearSaldo(MONTO_REFERIDO) + "* a cada uno \uD83D\uDCB0");
@@ -630,6 +620,13 @@ function _procesarMensajeEntrante(from, text) {
       } else {
         _enviarSubmenuGestiones(from, nombre);
       }
+      return;
+    }
+
+    if (paso === "esperando_handicap_para_plan") {
+      const nombre = conv.nombre || _obtenerNombreLead(from);
+      _actualizarHandicapLead(from, text);
+      _iniciarFlujoPlan(from, nombre, { ...conv, handicap: text });
       return;
     }
 
@@ -692,12 +689,6 @@ function _procesarMensajeEntrante(from, text) {
       return;
     }
 
-    if (paso === "esperando_aspecto_menu") {
-      _enviarMensajeWhatsApp(from, "Perfecto \u26f3 Estoy preparando tu ejercicio...");
-      const datos = { ...conv, paso: "completo", aspecto: text };
-      _guardarConversacion(from, datos); _registrarSesion(from, datos); return;
-    }
-
     if (paso === "esperando_actualizar_datos") {
       if (text === "1") {
         _enviarMensajeWhatsApp(from, "\u00bfCu\u00e1l es tu nombre?");
@@ -730,8 +721,28 @@ function _procesarMensajeEntrante(from, text) {
     }
     if (paso === "esperando_nombre") {
       const nombre = _sanitizarNombre(text);
-      _enviarMensajeWhatsApp(from, "Hola *" + nombre + "* \ud83d\udc4b\n\n\u00bfCu\u00e1l es tu handicap?\n\n_(Si est\u00e1s empezando, escrib\u00ed *no tengo*)_");
-      _guardarConversacion(from, { ...conv, paso: "esperando_handicap", nombre }); return;
+      // Registrar al lead ac\u00e1 mismo (no esperar a una sesi\u00f3n) \u2014 si viene del flujo
+      // agresivo (mand\u00f3 el video primero), la fila ya existe con nombre vac\u00edo y esto
+      // solo la completa; si no, la crea. El handicap ya no se pide en el onboarding,
+      // se pide m\u00e1s adelante en "Actualizar mis datos" o si hace falta para un plan.
+      _registrarOActualizarLead(from, nombre, "");
+      const referidoPendiente = _resolverReferidoPendiente(from);
+      if (referidoPendiente) {
+        _acreditarSaldoLead(from, referidoPendiente.monto);
+        _acreditarSaldoLead(referidoPendiente.whatsappReferidor, referidoPendiente.monto);
+        _enviarMensajeWhatsApp(from, "\ud83c\udf81 Alguien te refiri\u00f3 a Golfito \u2014 te acreditamos *" + _formatearSaldo(referidoPendiente.monto) + "* extra a tu billetera.");
+      }
+      _enviarMensajeWhatsApp(from, "\u00a1Gracias, " + nombre + "! \ud83d\udc4b");
+      _enviarMenuPrincipal(from, nombre);
+      _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", nombre });
+      return;
+    }
+    if (paso === "esperando_video_o_nombre") {
+      // Lleg\u00f3 al video directo (ver _procesarVideoEntrante) o a este punto con
+      // cualquier otro texto \u2014 en ese caso, pedimos el nombre como antes.
+      _enviarMensajeWhatsApp(from, "\u00bfC\u00f3mo te llam\u00e1s?");
+      _guardarConversacion(from, { ...conv, paso: "esperando_nombre" });
+      return;
     }
     if (paso === "esperando_pais_pago") {
       let pais;
@@ -747,24 +758,6 @@ function _procesarMensajeEntrante(from, text) {
       else if (accion === "recarga_menu") { _procesarRecargaConMonto(from, nombre, convConPais, convConPais.monto_pendiente_pais || 0); }
       else { _guardarConversacion(from, { ...convConPais, paso: "esperando_menu_principal" }); _enviarMenuPrincipal(from, nombre); }
       return;
-    }
-    if (paso === "esperando_handicap") {
-      // Capturar el lead acá mismo (no esperar a que termine una sesión) — si no,
-      // alguien que da nombre/handicap y no llega a pedir nada queda sin registrar
-      // en Leads, y cualquier recarga de saldo posterior no tiene fila donde guardarse.
-      _registrarOActualizarLead(from, conv.nombre, text);
-      // Recién acá el lead queda registrado de verdad (nombre + handicap) — si se
-      // resolviera el referido antes de este punto, _acreditarSaldoLead auto-crearía
-      // la fila en Leads con nombre vacío, y _registrarOActualizarLead no lo pisa
-      // después (solo actualiza handicap si la fila ya existe).
-      const referidoPendiente = _resolverReferidoPendiente(from);
-      if (referidoPendiente) {
-        _acreditarSaldoLead(from, referidoPendiente.monto);
-        _acreditarSaldoLead(referidoPendiente.whatsappReferidor, referidoPendiente.monto);
-        _enviarMensajeWhatsApp(from, "🎁 Alguien te refirió a Golfito — te acreditamos *" + _formatearSaldo(referidoPendiente.monto) + "* extra a tu billetera.");
-      }
-      _enviarMenuPrincipal(from, conv.nombre);
-      _guardarConversacion(from, { ...conv, paso: "esperando_menu_principal", handicap: text }); return;
     }
     if (paso === "esperando_video_indice") {
       if ((conv.intentos_video || 0) >= 1) {
@@ -1017,6 +1010,20 @@ function _ofrecerRecargaAnalisisPrevia(from, nombre, conv) {
   }
 }
 
+// Factorizado de la opción "Plan Personalizado" del submenú — se llama directo si ya
+// tenemos el handicap, o después de pedirlo (ver "esperando_handicap_para_plan") si no.
+function _iniciarFlujoPlan(from, nombre, conv) {
+  const vids = _obtenerUltimosVideosSesion(from);
+  if (vids.url1 || vids.url2) {
+    const cuantos = (vids.url1 && vids.url2) ? "dos videos" : "un video";
+    _enviarMensajeWhatsApp(from, "Perfecto " + nombre + " ⛳ Veo que ya enviaste " + cuantos + " anteriormente.\n\n¿Usamos esos para armar tu plan, o querés enviar nuevos?\n\n1️⃣ Usar los videos que ya envié\n2️⃣ Enviar videos nuevos");
+    _guardarConversacion(from, { ...conv, paso: "esperando_reusar_videos", ejvsplan: "3", nombre, video_url1_prev: vids.url1, video_url2_prev: vids.url2 });
+  } else {
+    _enviarMensajeWhatsApp(from, "Perfecto ⛳ Para armar tu plan necesito videos de tu swing 🎥\n\nEnviame un video *de perfil* _(cámara detrás tuyo, menos de 7 segundos)_");
+    _guardarConversacion(from, { ...conv, paso: "esperando_video_plan_1", ejvsplan: "3", nombre, video_url1: "", video_url2: "", intentos_video: 0 });
+  }
+}
+
 function _ofrecerRecargaPlan(from, nombre, conv, comentarios) {
   if (!conv.pais) { _pedirPaisAntesDePago(from, conv, "plan", { comentarios_alumno: comentarios }); return; }
   const saldo = _obtenerSaldoLead(from);
@@ -1089,8 +1096,12 @@ function _procesarVideoEntrante(from, mediaId) {
   if (!lock.tryLock(5000)) { Logger.log("Lock no obtenido para video: " + from); return; }
   try {
     const conv = _obtenerConversacion(from);
-    const paso = conv.paso || "";
-    const pasosValidos = ["esperando_video_analisis","esperando_video_indice","esperando_video_plan","esperando_video_plan_1","esperando_video_plan_2","esperando_video_plan_complementario"];
+    let paso = conv.paso || "";
+    // Un número nunca visto (sin conversación guardada) que manda un video como primer
+    // mensaje, sin haber escrito nada antes — pasa exactamente igual que si hubiera
+    // llegado al mensaje de bienvenida y mandado el video ahí (flujo agresivo).
+    if (!paso && !_esUsuarioConocido(from)) paso = "esperando_video_o_nombre";
+    const pasosValidos = ["esperando_video_o_nombre","esperando_video_analisis","esperando_video_indice","esperando_video_plan","esperando_video_plan_1","esperando_video_plan_2","esperando_video_plan_complementario"];
     if (!pasosValidos.includes(paso)) return;
     try {
       const metaRes = UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + mediaId, { headers: { "Authorization": "Bearer " + META_TOKEN } });
@@ -1108,7 +1119,30 @@ function _procesarVideoEntrante(from, mediaId) {
       const driveUrl = file.getUrl();
       _logMensaje(from, "entrante", "video_drive", driveUrl);
 
-      if (paso === "esperando_video_indice") {
+      if (paso === "esperando_video_o_nombre") {
+        // Flujo agresivo: mandó el video sin decir su nombre todavía. Se registra
+        // acá mismo (nombre vacío, se lo pedimos después del análisis) para que ya
+        // tenga el saldo inicial disponible y se pueda debitar el análisis con
+        // normalidad — el nombre se completa en _procesarAnalisisVideo.
+        if (!_esUsuarioConocido(from)) {
+          _registrarOActualizarLead(from, "", "");
+          const referidoPendiente = _resolverReferidoPendiente(from);
+          if (referidoPendiente) {
+            _acreditarSaldoLead(from, referidoPendiente.monto);
+            _acreditarSaldoLead(referidoPendiente.whatsappReferidor, referidoPendiente.monto);
+            _enviarMensajeWhatsApp(from, "🎁 Alguien te refirió a Golfito — te acreditamos *" + _formatearSaldo(referidoPendiente.monto) + "* extra a tu billetera.");
+          }
+        }
+        const datosConVideo = { ...conv, video_url1: driveUrl, ejvsplan: "2" };
+        _registrarSesion(from, datosConVideo);
+        _enviarMensajeWhatsApp(from,
+          "✅ ¡Recibido! 🎥\n\n" +
+          "¿Hay algo específico en lo que querés que me enfoque? _(opcional)_\n\n" +
+          "Ej: ¿Mi grip está bien? ¿Estoy haciendo slice? ¿Transfiero bien el peso?\n\n" +
+          "_(Escribí tu comentario o *omitir* para continuar)_"
+        );
+        _guardarConversacion(from, { ...datosConVideo, paso: "esperando_contexto_video" });
+      } else if (paso === "esperando_video_indice") {
         const nombreIndice = conv.nombre || _obtenerNombreLead(from);
         _enviarMensajeWhatsApp(from, "\u2705 Recib\u00ed tu video " + nombreIndice + ". Calculando tu \u00cdndice Golfito, dame un momento... \uD83D\uDCCA");
         _guardarConversacion(from, { ...conv, paso: "calculando_indice", video_url1: driveUrl });
@@ -1191,10 +1225,17 @@ function _procesarAnalisisVideo(from, conv, esSegundoVideo) {
     }
     const nombre = conv.nombre || _obtenerNombreLead(from);
     if (!esSegundoVideo) {
+      if (_safeString(conv.ejvsplan) === "2") _actualizarSesionAnalisis(from, a, null);
+      if (!nombre) {
+        // Vino del flujo agresivo (mandó el video sin decir su nombre) — recién ahora,
+        // después del pago emocional del resultado, se lo pedimos.
+        _enviarMensajeWhatsApp(from, "¡Buenísimo! Antes de seguir — ¿cómo te llamás?");
+        _guardarConversacion(from, { ...conv, paso: "esperando_nombre" });
+        return;
+      }
       _enviarMenuPrincipal(from, nombre);
       const datos = { ...conv, paso: "esperando_menu_principal", analisis1: a };
       _guardarConversacion(from, datos);
-      if (_safeString(conv.ejvsplan) === "2") _actualizarSesionAnalisis(from, a, null);
     } else {
       _enviarMenuPrincipal(from, nombre);
       const datos = { ...conv, paso: "esperando_menu_principal", analisis2: a };
@@ -1416,7 +1457,16 @@ function _registrarOActualizarLead(from, nombre, handicap) {
   let sheet = ss.getSheetByName(LEADS_SHEET);
   if (!sheet) { sheet = ss.insertSheet(LEADS_SHEET); sheet.appendRow(["whatsapp","nombre","fecha_registro","handicap","notas","saldo","fecha_nudge_onboarding"]); }
   const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) { if (_safeString(data[i][0]) === from) { sheet.getRange(i+1,4).setValue(handicap); return; } }
+  // Actualiza nombre/handicap solo si vienen con valor — así se puede "actualizar
+  // handicap" sin pisar el nombre con vacío, y viceversa (ej. el flujo agresivo que
+  // registra al alumno sin nombre todavía y se lo completa recién después del análisis).
+  for (let i = 1; i < data.length; i++) {
+    if (_safeString(data[i][0]) === from) {
+      if (nombre) sheet.getRange(i+1,2).setValue(nombre);
+      if (handicap) sheet.getRange(i+1,4).setValue(handicap);
+      return;
+    }
+  }
   sheet.appendRow([from, nombre, new Date(), handicap, "", SALDO_INICIAL_LEAD]);
 }
 
