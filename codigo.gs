@@ -132,13 +132,16 @@ function doPost(e) {
     if (!_secretWebhookValido(e)) { Logger.log("doPost WhatsApp rechazado: secret invalido"); return _okResponse(); }
     if (!body.entry?.[0]?.changes?.[0]?.value?.messages) {
       // Meta también manda acá los callbacks de estado de mensajes salientes
-      // (sent/delivered/read/failed). Antes se descartaban en silencio; ahora
-      // se loguean en ChatLog para poder diagnosticar entregas que fallan.
+      // (sent/delivered/read/failed). Solo "failed" tiene valor para diagnosticar
+      // entregas rotas — sent/delivered/read no se loguean, llenaban ChatLog de
+      // ruido sin aportar nada (varios de golpe cada vez que alguien abre WhatsApp
+      // y lee mensajes acumulados).
       const statuses = body.entry?.[0]?.changes?.[0]?.value?.statuses;
       if (statuses && statuses.length) {
         try {
           const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ChatLog");
           statuses.forEach(function(s) {
+            if (s.status !== "failed") return;
             sheet.appendRow([new Date(), s.recipient_id || "", "status", s.status || "", s.errors ? JSON.stringify(s.errors) : ""]);
           });
         } catch(e2) { Logger.log("Error logueando status WhatsApp: " + e2); }
