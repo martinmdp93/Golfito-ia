@@ -1404,15 +1404,18 @@ function enviarRecordatorioSemanal() {
     if (!whatsapp || !nombre) continue;
     const ultima = ultimaActividad[whatsapp];
     if (ultima && (ahora - ultima) < limiteMs) continue;
-    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "1", value: nombre }]); }
+    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: nombre }]); }
     catch(err) { Logger.log("Error enviando recordatorio semanal a " + whatsapp + ": " + err); }
   }
 }
 
-// parametrosBody: lista de { name, value } — "parameter_name" siempre va (Meta lo exige
-// en esta cuenta incluso para variables por posición). Si el template usa {{nombre}},
-// name es "nombre"; si usa {{1}}, name tiene que ser el string "1" (el número tal cual,
-// no se puede omitir — probado en producción: sin esto tira "Parameter name is missing").
+// parametrosBody: lista de { name, value } — "parameter_name" siempre va, sin excepción
+// (probado: omitirlo tira "Parameter name is missing"). El valor de "name" tiene que
+// coincidir EXACTO con cómo quedó armada la variable en Meta — puede ser un nombre
+// ("nombre") o directamente el número como string ("1"), y no hay forma de saberlo de
+// antemano solo mirando la plantilla en el editor: probar siempre con
+// _testRecordatorioAMiNumero() (o el test equivalente) después de dar de alta o cambiar
+// una plantilla, antes de asumir que el nombre del parámetro es el que parece.
 function _enviarTemplateWhatsApp(telefono, templateName, languageCode, parametrosBody) {
   const res = UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/messages", {
     method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN, "Content-Type": "application/json" },
@@ -2657,8 +2660,8 @@ function _setupBancoErrores() {
 // Temporal: probar el template del recordatorio semanal contra un solo número
 // antes de correr enviarRecordatorioSemanal (que le manda a todos los inactivos).
 // Se puede borrar una vez confirmado que el template llega bien.
-function _testRecordatorioAMiNumero() { _enviarTemplateWhatsApp("56949425602", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "1", value: "Martín" }]); }
-function _testRecordatorioOtroNumero() { _enviarTemplateWhatsApp("56975466327", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "1", value: "Martín" }]); }
+function _testRecordatorioAMiNumero() { _enviarTemplateWhatsApp("56949425602", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
+function _testRecordatorioOtroNumero() { _enviarTemplateWhatsApp("56975466327", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
 function _testDescuentoAMiNumero() { _enviarTemplateWhatsApp("56949425602", DESCUENTO_TEMPLATE_NAME, DESCUENTO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
 
 // Un solo uso: manda la plantilla actual (RECORDATORIO_TEMPLATE_NAME) a TODA la hoja
@@ -2674,7 +2677,7 @@ function _enviarReferidosATodaLaBase() {
   for (let i = 1; i < leads.length; i++) {
     const whatsapp = _safeString(leads[i][0]); const nombre = _safeString(leads[i][1]);
     if (!whatsapp || !nombre) continue;
-    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "1", value: nombre }]); }
+    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: nombre }]); }
     catch(err) { Logger.log("Error enviando a toda la base a " + whatsapp + ": " + err); }
   }
 }
@@ -2706,7 +2709,7 @@ function _enviarRecordatorioALista() {
     { telefono: "56987654321", nombre: "Pedro" }
   ];
   destinatarios.forEach(function(d) {
-    try { _enviarTemplateWhatsApp(d.telefono, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "1", value: d.nombre }]); }
+    try { _enviarTemplateWhatsApp(d.telefono, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: d.nombre }]); }
     catch(err) { Logger.log("Error enviando recordatorio a " + d.telefono + ": " + err); }
   });
 }
