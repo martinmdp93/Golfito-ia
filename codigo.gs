@@ -1409,15 +1409,17 @@ function enviarRecordatorioSemanal() {
   }
 }
 
-// parametrosBody: lista de { name, value } — el template usa variables con nombre
-// (ej. {{nombre}}), así que cada parámetro necesita "parameter_name" además del texto.
+// parametrosBody: lista de { name, value }. Si el template usa variables con nombre
+// (ej. {{nombre}}) cada parámetro necesita "parameter_name" además del texto; si usa
+// variables por posición (ej. {{1}}) NO lleva "parameter_name" — WhatsApp las matchea
+// por el orden del array. Pasá name:"" (o solo {value}) para el caso posicional.
 function _enviarTemplateWhatsApp(telefono, templateName, languageCode, parametrosBody) {
   const res = UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/messages", {
     method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN, "Content-Type": "application/json" },
     muteHttpExceptions: true,
     payload: JSON.stringify({
       messaging_product: "whatsapp", to: telefono, type: "template",
-      template: { name: templateName, language: { code: languageCode }, components: [{ type: "body", parameters: parametrosBody.map(function(p){ return { type: "text", parameter_name: p.name, text: p.value }; }) }] }
+      template: { name: templateName, language: { code: languageCode }, components: [{ type: "body", parameters: parametrosBody.map(function(p){ return p.name ? { type: "text", parameter_name: p.name, text: p.value } : { type: "text", text: p.value }; }) }] }
     })
   });
   if (res.getResponseCode() >= 300) { Logger.log("Error _enviarTemplateWhatsApp (" + res.getResponseCode() + "): " + res.getContentText()); throw new Error(res.getContentText()); }
