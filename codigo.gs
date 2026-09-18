@@ -1404,22 +1404,22 @@ function enviarRecordatorioSemanal() {
     if (!whatsapp || !nombre) continue;
     const ultima = ultimaActividad[whatsapp];
     if (ultima && (ahora - ultima) < limiteMs) continue;
-    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ value: nombre }]); }
+    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "1", value: nombre }]); }
     catch(err) { Logger.log("Error enviando recordatorio semanal a " + whatsapp + ": " + err); }
   }
 }
 
-// parametrosBody: lista de { name, value }. Si el template usa variables con nombre
-// (ej. {{nombre}}) cada parámetro necesita "parameter_name" además del texto; si usa
-// variables por posición (ej. {{1}}) NO lleva "parameter_name" — WhatsApp las matchea
-// por el orden del array. Pasá name:"" (o solo {value}) para el caso posicional.
+// parametrosBody: lista de { name, value } — "parameter_name" siempre va (Meta lo exige
+// en esta cuenta incluso para variables por posición). Si el template usa {{nombre}},
+// name es "nombre"; si usa {{1}}, name tiene que ser el string "1" (el número tal cual,
+// no se puede omitir — probado en producción: sin esto tira "Parameter name is missing").
 function _enviarTemplateWhatsApp(telefono, templateName, languageCode, parametrosBody) {
   const res = UrlFetchApp.fetch("https://graph.facebook.com/v19.0/" + PHONE_NUMBER_ID + "/messages", {
     method: "POST", headers: { "Authorization": "Bearer " + META_TOKEN, "Content-Type": "application/json" },
     muteHttpExceptions: true,
     payload: JSON.stringify({
       messaging_product: "whatsapp", to: telefono, type: "template",
-      template: { name: templateName, language: { code: languageCode }, components: [{ type: "body", parameters: parametrosBody.map(function(p){ return p.name ? { type: "text", parameter_name: p.name, text: p.value } : { type: "text", text: p.value }; }) }] }
+      template: { name: templateName, language: { code: languageCode }, components: [{ type: "body", parameters: parametrosBody.map(function(p){ return { type: "text", parameter_name: p.name, text: p.value }; }) }] }
     })
   });
   if (res.getResponseCode() >= 300) { Logger.log("Error _enviarTemplateWhatsApp (" + res.getResponseCode() + "): " + res.getContentText()); throw new Error(res.getContentText()); }
@@ -2657,8 +2657,8 @@ function _setupBancoErrores() {
 // Temporal: probar el template del recordatorio semanal contra un solo número
 // antes de correr enviarRecordatorioSemanal (que le manda a todos los inactivos).
 // Se puede borrar una vez confirmado que el template llega bien.
-function _testRecordatorioAMiNumero() { _enviarTemplateWhatsApp("56949425602", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ value: "Martín" }]); }
-function _testRecordatorioOtroNumero() { _enviarTemplateWhatsApp("56975466327", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ value: "Martín" }]); }
+function _testRecordatorioAMiNumero() { _enviarTemplateWhatsApp("56949425602", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "1", value: "Martín" }]); }
+function _testRecordatorioOtroNumero() { _enviarTemplateWhatsApp("56975466327", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "1", value: "Martín" }]); }
 function _testDescuentoAMiNumero() { _enviarTemplateWhatsApp("56949425602", DESCUENTO_TEMPLATE_NAME, DESCUENTO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
 
 // Un solo uso: manda la plantilla actual (RECORDATORIO_TEMPLATE_NAME) a TODA la hoja
@@ -2674,7 +2674,7 @@ function _enviarReferidosATodaLaBase() {
   for (let i = 1; i < leads.length; i++) {
     const whatsapp = _safeString(leads[i][0]); const nombre = _safeString(leads[i][1]);
     if (!whatsapp || !nombre) continue;
-    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ value: nombre }]); }
+    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "1", value: nombre }]); }
     catch(err) { Logger.log("Error enviando a toda la base a " + whatsapp + ": " + err); }
   }
 }
@@ -2706,7 +2706,7 @@ function _enviarRecordatorioALista() {
     { telefono: "56987654321", nombre: "Pedro" }
   ];
   destinatarios.forEach(function(d) {
-    try { _enviarTemplateWhatsApp(d.telefono, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ value: d.nombre }]); }
+    try { _enviarTemplateWhatsApp(d.telefono, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "1", value: d.nombre }]); }
     catch(err) { Logger.log("Error enviando recordatorio a " + d.telefono + ": " + err); }
   });
 }
