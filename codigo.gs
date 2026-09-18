@@ -33,7 +33,7 @@ const COSTO_ANALISIS = 3500;
 const COSTO_PLAN = 10000;
 const SALDO_INICIAL_LEAD = 3500;
 
-const RECORDATORIO_TEMPLATE_NAME = "referidos";
+const RECORDATORIO_TEMPLATE_NAME = "recordatorio_churn";
 const RECORDATORIO_TEMPLATE_LANG = "es_AR";
 const DESCUENTO_TEMPLATE_NAME = "descuento_temporal";
 const DESCUENTO_TEMPLATE_LANG = "es_AR";
@@ -1404,7 +1404,7 @@ function enviarRecordatorioSemanal() {
     if (!whatsapp || !nombre) continue;
     const ultima = ultimaActividad[whatsapp];
     if (ultima && (ahora - ultima) < limiteMs) continue;
-    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: nombre }]); }
+    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ value: nombre }]); }
     catch(err) { Logger.log("Error enviando recordatorio semanal a " + whatsapp + ": " + err); }
   }
 }
@@ -2657,8 +2657,8 @@ function _setupBancoErrores() {
 // Temporal: probar el template del recordatorio semanal contra un solo número
 // antes de correr enviarRecordatorioSemanal (que le manda a todos los inactivos).
 // Se puede borrar una vez confirmado que el template llega bien.
-function _testRecordatorioAMiNumero() { _enviarTemplateWhatsApp("56949425602", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
-function _testRecordatorioOtroNumero() { _enviarTemplateWhatsApp("56975466327", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
+function _testRecordatorioAMiNumero() { _enviarTemplateWhatsApp("56949425602", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ value: "Martín" }]); }
+function _testRecordatorioOtroNumero() { _enviarTemplateWhatsApp("56975466327", RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ value: "Martín" }]); }
 function _testDescuentoAMiNumero() { _enviarTemplateWhatsApp("56949425602", DESCUENTO_TEMPLATE_NAME, DESCUENTO_TEMPLATE_LANG, [{ name: "nombre", value: "Martín" }]); }
 
 // Un solo uso: manda la plantilla actual (RECORDATORIO_TEMPLATE_NAME) a TODA la hoja
@@ -2674,7 +2674,7 @@ function _enviarReferidosATodaLaBase() {
   for (let i = 1; i < leads.length; i++) {
     const whatsapp = _safeString(leads[i][0]); const nombre = _safeString(leads[i][1]);
     if (!whatsapp || !nombre) continue;
-    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: nombre }]); }
+    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ value: nombre }]); }
     catch(err) { Logger.log("Error enviando a toda la base a " + whatsapp + ": " + err); }
   }
 }
@@ -2706,7 +2706,7 @@ function _enviarRecordatorioALista() {
     { telefono: "56987654321", nombre: "Pedro" }
   ];
   destinatarios.forEach(function(d) {
-    try { _enviarTemplateWhatsApp(d.telefono, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: d.nombre }]); }
+    try { _enviarTemplateWhatsApp(d.telefono, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ value: d.nombre }]); }
     catch(err) { Logger.log("Error enviando recordatorio a " + d.telefono + ": " + err); }
   });
 }
