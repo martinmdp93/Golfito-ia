@@ -38,6 +38,9 @@ const RECORDATORIO_TEMPLATE_LANG = "es_AR";
 const DESCUENTO_TEMPLATE_NAME = "descuento_temporal";
 const DESCUENTO_TEMPLATE_LANG = "es_AR";
 const RECORDATORIO_DIAS_INACTIVIDAD = 7;
+const RECORDATORIO_MAX_ENVIOS = 2;
+// Los leads registrados antes de esta fecha nunca reciben el recordatorio (ya se les mandó de más y no responden).
+const RECORDATORIO_SOLO_REGISTRADOS_DESDE = new Date(2026, 9, 10);
 
 const ENTRADA_CALOR_STD = "Empeza con 5 minutos de movilidad articular (hombros, caderas y munecas). Tira 10-15 chips cortos para activar el tacto. Luego hace 5-8 swings completos a medio ritmo antes de arrancar con los ejercicios.";
 const CONSIDERACIONES_STD = "Animo! Intenta este plan en 2 a 4 sesiones de entrenamiento y comentanos tus avances o cualquier duda adicional. Recorda siempre tirar algunas bolas de forma natural y sin pensamientos tecnicos antes de dejar el driving, y evita pensamientos complejos al competir.";
@@ -64,9 +67,10 @@ const COL = {
 };
 
 // Columnas Leads: whatsapp(1), nombre(2), fecha_registro(3), handicap(4), notas(5), saldo(6),
-// fecha_nudge_onboarding(7)
+// fecha_nudge_onboarding(7), recordatorios_enviados(8)
 const LEADS_COL_SALDO = 6;
 const LEADS_COL_FECHA_NUDGE_ONBOARDING = 7;
+const LEADS_COL_RECORDATORIOS_ENVIADOS = 8;
 const INDICE_SHEET = "IndiceGolfito";
 const INDICE_HEADERS = ["timestamp","whatsapp","score_total","grip","postura","backswing","downswing","impacto","follow_through","transferencia_peso","video_url"];
 
@@ -1402,9 +1406,16 @@ function enviarRecordatorioSemanal() {
   for (let i = 1; i < leads.length; i++) {
     const whatsapp = _safeString(leads[i][0]); const nombre = _safeString(leads[i][1]);
     if (!whatsapp || !nombre) continue;
+    const fechaRegistro = leads[i][2];
+    if (!fechaRegistro || new Date(fechaRegistro) < RECORDATORIO_SOLO_REGISTRADOS_DESDE) continue;
+    const enviados = parseInt(leads[i][LEADS_COL_RECORDATORIOS_ENVIADOS - 1], 10) || 0;
+    if (enviados >= RECORDATORIO_MAX_ENVIOS) continue;
     const ultima = ultimaActividad[whatsapp];
     if (ultima && (ahora - ultima) < limiteMs) continue;
-    try { _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: nombre }]); }
+    try {
+      _enviarTemplateWhatsApp(whatsapp, RECORDATORIO_TEMPLATE_NAME, RECORDATORIO_TEMPLATE_LANG, [{ name: "nombre", value: nombre }]);
+      leadsSheet.getRange(i + 1, LEADS_COL_RECORDATORIOS_ENVIADOS).setValue(enviados + 1);
+    }
     catch(err) { Logger.log("Error enviando recordatorio semanal a " + whatsapp + ": " + err); }
   }
 }
